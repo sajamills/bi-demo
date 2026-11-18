@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gridiron League Data Platform</title>
+<meta name="description" content="Demo league data and BI platform with synthetic data: KPI scorecard, star-schema ERD, SQL Lab, roadmap, governance and adoption.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230f1b2a%22/%3E%3Cpath d=%22M16 6l8 10-8 10-8-10z%22 fill=%22%236f9bff%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+<link rel="stylesheet" href="styles.css?v=25">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="logo">◆</span><div><b>Gridiron League</b><small>Data &amp; BI Platform</small></div></div>
+    <nav id="nav" aria-label="Sections">
+      <button data-tab="overview" class="on">Overview</button>
+      <button data-tab="brief">Monday Exec Brief</button>
+      <button data-tab="kpi">KPI Scorecard</button>
+      <button data-tab="ask">Ask the data ✦</button>
+      <button data-tab="odds">Schedule &amp; Odds <span class="livedot" aria-hidden="true"></span></button>
+      <button data-tab="erd">Data Model &amp; ERD</button>
+      <button data-tab="wh">Warehouse &amp; Pipelines</button>
+      <button data-tab="sql">SQL Lab</button>
+      <button data-tab="churn">Churn model (League+)</button>
+      <button data-tab="fan">Fan identity (Fan 360)</button>
+      <button data-tab="roadmap">Roadmap</button>
+      <button data-tab="gov">Governance &amp; Quality</button>
+      <button data-tab="adopt">Adoption</button>
+      <button data-tab="plan">My first 90 days ★</button>
+    </nav>
+    <div class="side-foot">
+      <span id="dbstatus" class="dot">Loading warehouse…</span>
+      <small class="synth">Synthetic demo data · fictional clubs · not affiliated with any league</small>
+      <button id="tourBtn" class="ghost" title="Guided tour (T)">▶ Start tour</button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section id="tab-overview" class="tab on">
+      <header class="pagehead"><div><h1>Data &amp; BI Platform – Command Center</h1><p>One place for the league's data roadmap, certified KPIs across ticketing, media, streaming, merchandise and player health, the governed data model, self-service SQL, data quality and adoption – for the league office and all 32 clubs. Every number is computed live, in your browser, against a synthetic warehouse.</p></div></header>
+      <div class="cards4" id="ovStats"></div>
+      <div class="panel"><h2>AWS reference architecture <small>click any service for its role, why we chose it, and cost</small></h2><div id="ovArch" class="svgwrap"></div></div>
+      <div class="grid2">
+        <div class="panel"><h2>This quarter's focus</h2>
+          <ol class="focus">
+            <li><b>League Executive Scorecard v2</b><span>One certified set of KPIs for the league office and clubs – <em>in progress, 70%</em></span></li>
+            <li><b>Real-time game-day ops dashboard</b><span>Gate scans and attendance every 5 minutes – <em>on track</em></span></li>
+            <li><b>Club data sharing with row-level security</b><span>32 clubs self-serve their data + league benchmarks – <em>at risk: club SSO onboarding</em></span></li>
+          </ol>
+        </div>
+        <div class="panel"><h2>Operating rhythm</h2>
+          <table class="mini"><tbody>
+            <tr><td>Game week</td><td>Change freeze Thu–Mon · live dashboards monitored on game days · releases Tue/Wed</td></tr>
+            <tr><td>Weekly</td><td>Cross-team delivery stand-up (DE, BI, Governance, App Dev) · risk &amp; dependency review</td></tr>
+            <tr><td>Bi-weekly</td><td>Backlog grooming &amp; release planning with product owners</td></tr>
+            <tr><td>Monthly</td><td>Roadmap review with business stakeholders · adoption &amp; data-quality scorecard</td></tr>
+            <tr><td>Quarterly</td><td>Executive roadmap readout · big platform changes scheduled for the off-season</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- BRIEF -->
+    <section id="tab-brief" class="tab">
+      <header class="pagehead"><div><h1>Monday Exec Brief</h1><p id="brSub">Generated automatically from certified metrics every Monday at 7:00 AM ET.</p></div><button class="primary noprint" id="brPrint">Print / Save as PDF</button></header>
+      <div class="cards4" id="brCards"></div>
+      <div class="grid2">
+        <div class="panel"><h2>What happened this week</h2><ul id="brBullets" class="bullets"></ul></div>
+        <div class="panel" id="brAnom"><h2>Anomalies detected <small>vs trailing 4-week mean · flag beyond 2.5σ</small></h2><div id="brAnomTable" class="tablewrap" style="max-height:none"></div><div class="chartbox sm"><canvas id="cAnom"></canvas></div></div>
+      </div>
+      <div class="grid2" id="brAlertWrap">
+        <div class="panel"><h2>Alert that fired <small>#media-analytics · CloudWatch alarm → SNS → AWS Chatbot (Slack)</small></h2><div id="brSlack"></div></div>
+        <div class="panel"><h2>Who gets notified <small>alert routing by severity</small></h2><div id="brRoute" class="tablewrap" style="max-height:none"></div></div>
+      </div>
+      <div class="panel"><h2>Open data incidents</h2><div id="brDq"></div></div>
+    </section>
+
+    <!-- ASK -->
+    <section id="tab-ask" class="tab">
+      <header class="pagehead"><div><h1>Ask the data</h1><p>Ask in plain English. Every answer comes from a certified metric, shows the SQL it ran, and respects access policy.</p></div></header>
+      <div class="panel" id="askWrap">
+        <div id="askChips" class="chips"></div>
+        <form id="askForm" class="askform"><input id="askInput" autocomplete="off" placeholder="e.g. Streaming vs network CPM in 2026" aria-label="Ask a question"><button class="primary" type="submit">Ask</button></form>
+        <p class="muted fine">Prototype: rule-based intent matching over the semantic layer. In production: Amazon Bedrock grounded on certified metrics, with Lake Formation permissions enforced. Respects "View as" on the KPI page.</p>
+      </div>
+      <div id="askLog"></div>
+    </section>
+
+    <!-- KPI -->
+    <section id="tab-kpi" class="tab">
+      <header class="pagehead"><div><h1>League Executive Scorecard</h1><p>Certified metrics. Tap ⓘ on any KPI to see its definition, owner and the exact SQL behind it.</p></div>
+        <div class="filters">
+          <label>View as<select id="fView"><option value="exec">League executive</option><option value="club">Club staff · Chicago Steel</option><option value="media">Media partner</option></select></label>
+          <label>Period<select id="fPeriod"></select></label>
+          <label>Conference<select id="fRegion"><option value="">Both conferences</option><option>AFC</option><option>NFC</option></select></label>
+          <label>Division<select id="fSegment"><option value="">All divisions</option></select></label>
+        </div>
+      </header>
+      <div id="rlsNote" class="rls" hidden></div>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid2">
+        <div class="panel"><h2>Weekly viewership vs last season &amp; attendance</h2><div class="chartbox"><canvas id="cTrend"></canvas></div></div>
+        <div class="panel"><h2>Ticket revenue by division <small>tap a bar to filter</small></h2><div class="chartbox"><canvas id="cRegion"></canvas></div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>Ad impressions &amp; CPM by week – streaming vs network TV</h2><div class="chartbox"><canvas id="cAds"></canvas></div></div>
+        <div class="panel"><h2>Ad spend vs impressions <small>streaming vs network TV</small></h2><div id="tAds" class="tablewrap"></div><div class="chartbox sm"><canvas id="cAdShare"></canvas></div></div>
+      </div>
+      <div class="panel" id="wiWrap"><h2>What-if: ad pricing <small>hold delivered impressions constant · move the rate card</small></h2><div id="whatIf"></div></div>
+      <div class="grid3">
+        <div class="panel"><h2>Audience by platform</h2><div class="chartbox sm"><canvas id="cSeg"></canvas></div></div>
+        <div class="panel"><h2>Top clubs – merchandise <small>fan panel</small></h2><div id="tTop" class="tablewrap"></div></div>
+        <div class="panel"><h2>Viewership by kickoff window</h2><div id="tReps" class="tablewrap"></div></div>
+      </div>
+    </section>
+
+    <!-- ODDS -->
+    <section id="tab-odds" class="tab">
+      <header class="pagehead"><div><h1>Schedule &amp; Odds</h1><p>Weekly schedule with consensus betting lines – spread, total and moneyline, line movement and where the money is. The upcoming week updates live.</p></div>
+        <div class="filters"><label>Week<select id="oWeek"></select></label><button id="feedBtn" class="ghost" type="button">Pause feed</button></div></header>
+      <div id="oBanner" class="live" role="status"></div>
+      <div class="hstrip" id="oHealth" aria-label="Game-day feed health"></div>
+      <div class="cards4" id="oStats"></div>
+      <div class="panel"><div id="oTable" class="tablewrap" style="max-height:none"></div></div>
+      <p class="muted fine">Synthetic lines for fictional clubs, for analytics demonstration only. In production this would ingest a licensed odds provider through the streaming pipeline. 21+ · Please gamble responsibly.</p>
+    </section>
+
+    <!-- ERD -->
+    <section id="tab-erd" class="tab">
+      <header class="pagehead"><div><h1>Data Model &amp; ERD</h1><p>Gold-layer star schema that every certified league and club dashboard reads from. Hover a table to trace its joins; tap it for owner, row count and a sample query.</p></div>
+        <div class="seg" role="group" aria-label="View"><button data-erd="star" class="on">Star schema</button><button data-erd="arch">Platform architecture</button><button data-erd="lineage">KPI lineage</button></div>
+      </header>
+      <div class="panel"><div id="erd" class="svgwrap erd"></div></div>
+      <div class="panel" id="erdInfo"><p class="muted">Select a table to see its details.</p></div>
+    </section>
+
+    <!-- WAREHOUSE -->
+    <section id="tab-wh" class="tab">
+      <header class="pagehead"><div><h1>Warehouse &amp; Pipelines</h1><p>What sits behind the dashboards: medallion layers, the orchestrated DAG and its run history, physical design, slowly changing dimensions, the semantic layer and cost.</p></div></header>
+      <div class="cards4" id="whStats"></div>
+      <div class="panel"><h2>Pipeline DAG <small>colored by last run · green success · amber retried / running · red failed</small></h2><div id="whDag" class="svgwrap erd"></div></div>
+      <div class="panel"><h2>Latest run per job</h2><div id="whRuns" class="tablewrap" style="max-height:none"></div></div>
+      <div class="grid2">
+        <div class="panel"><h2>Slowly changing dimension – type 2 <small>dim_team_scd</small></h2><p class="muted">Five clubs changed playing surface or capacity in the 2026 off-season. Type 1 overwrites history; type 2 keeps a row per version with valid_from / valid_to, so 2025 games still join to the stadium as it was.</p><div id="whScd" class="tablewrap"></div><button class="primary mt8" id="scdBtn">Run point-in-time join in SQL Lab</button></div>
+        <div class="panel"><h2>Semantic layer <small>one metric definition, every tool</small></h2><pre class="code"></pre></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>Warehouse compute &amp; query time <small>last 45 days</small></h2><div class="chartbox"><canvas id="cCost"></canvas></div><p class="muted">Nov 2: clustering by season/week and aggregate tables for the exec scorecard → compute −28%, query time −45%. Spikes are game days (Thu/Sun/Mon).</p></div>
+        <div class="panel"><h2>Warehouse design practices</h2><div id="whPractices"></div></div>
+      </div>
+    </section>
+
+    <!-- SQL -->
+    <section id="tab-sql" class="tab">
+      <header class="pagehead"><div><h1>SQL Lab</h1><p>Self-service queries against the governed warehouse. Ctrl/⌘ + Enter to run · Ctrl + Space to autocomplete.</p></div></header>
+      <div class="sqlgrid">
+        <div class="panel schema"><h2>Schema</h2><div id="schema"></div></div>
+        <div class="sqlmain">
+          <div class="panel">
+            <div class="sqlbar">
+              <select id="savedQ" aria-label="Saved queries"><option value="">Saved queries…</option></select>
+              <span class="grow"></span>
+              <button id="fmtBtn" class="ghost">Format</button>
+              <button id="runBtn" class="primary">▶ Run</button>
+            </div>
+            <textarea id="sqlEditor"></textarea>
+          </div>
+          <div class="panel">
+            <div class="sqlbar"><b id="resMeta">Results</b><span class="grow"></span>
+              <button id="chartBtn" class="ghost" disabled>Chart it</button>
+              <button id="csvBtn" class="ghost" disabled>Export CSV</button></div>
+            <div id="resErr" class="err" hidden></div>
+            <div class="chartbox" id="resChartBox" hidden><canvas id="cRes"></canvas></div>
+            <div id="results" class="tablewrap tall"><p class="muted">Run a query to see results.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHURN -->
+    <section id="tab-churn" class="tab">
+      <header class="pagehead"><div><h1>League+ churn model → BI</h1><p>Data Science scores every active subscriber nightly; the scores land in a certified table and drive retention campaigns.</p></div><button class="ghost" id="chCsv">Export target list (CSV)</button></header>
+      <div class="cards4" id="chTop"></div>
+      <div class="grid2">
+        <div class="panel"><h2>What drives churn <small>model coefficients · + raises risk, − lowers it</small></h2><div class="chartbox"><canvas id="cDrivers"></canvas></div></div>
+        <div class="panel"><h2>Risk tiers by fan segment</h2><div class="chartbox"><canvas id="cTiers"></canvas></div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>Top 12 at-risk subscribers <small>fan IDs only – contact details resolve in the activation tool for opted-in fans</small></h2><div id="chList" class="tablewrap"></div></div>
+        <div class="panel"><h2>Model card</h2><dl class="kv" id="chCard"></dl></div>
+      </div>
+    </section>
+
+    <!-- ROADMAP -->
+    <section id="tab-roadmap" class="tab">
+      <header class="pagehead"><div><h1>Platform Roadmap</h1><p>Prioritized by business value, stakeholder need, technical dependencies and team capacity (RICE). Every item has a success metric.</p></div>
+        <div class="seg" role="group" aria-label="Roadmap view"><button data-rm="board" class="on">Now / Next / Later</button><button data-rm="matrix">Value vs. effort</button><button data-rm="deps">Dependencies &amp; risks</button></div>
+      </header>
+      <div id="rmBoard" class="rm3"></div>
+      <div id="rmMatrix" class="panel" hidden><div class="chartbox tall"><canvas id="cMatrix"></canvas></div><p class="muted">Bubble size = number of stakeholders served. Top-left = quick wins.</p></div>
+      <div id="rmDeps" class="panel" hidden></div>
+    </section>
+
+    <!-- GOV -->
+    <section id="tab-gov" class="tab">
+      <header class="pagehead"><div><h1>Governance &amp; Data Quality</h1><p>Catalog, ownership, classification, access and automated quality checks. Checks run live against the warehouse.</p></div>
+        <button id="dqRun" class="primary">Run quality checks</button></header>
+      <div class="cards4" id="dqStats"></div>
+      <div class="panel"><h2>Automated data-quality checks</h2><div id="dqTable" class="tablewrap" style="max-height:none"></div></div>
+      <div class="panel" id="dcWrap"><h2>Data contract · live odds feed <small>vendor → Kinesis → stg_odds · checked on every batch</small></h2>
+        <div class="grid2 flat"><div><pre class="code" id="dcYaml"></pre></div><div><div class="btnrow"><button class="primary" id="dcBreak" type="button">Simulate vendor schema change</button><button class="ghost" id="dcReset" type="button">Reset</button></div><div id="dcOut"><p class="muted">The vendor's feed must match this contract. Simulate the vendor renaming a field and watch the pipeline stop the bad batch before it reaches a dashboard.</p></div></div></div></div>
+      <div class="panel"><h2>Data catalog</h2><div id="catalog" class="tablewrap" style="max-height:none"></div></div>
+      <div>
+        <div class="panel"><h2>Access matrix <small>role-based, with row-level security &amp; PII masking</small></h2><div id="access" class="tablewrap"></div></div>
+      </div>
+      <div class="panel"><h2>New data product – governance review checklist</h2>
+        <ul class="checks">
+          <li>✅ Business owner &amp; data steward assigned</li><li>✅ Metric definitions added to the KPI glossary</li>
+          <li>✅ Data classified (Public / Internal / Confidential / PII)</li><li>✅ Access roles &amp; RLS rules defined</li>
+          <li>✅ Quality checks &amp; freshness SLA configured</li><li>✅ Lineage documented source → dashboard</li>
+          <li>⬜ Retention &amp; privacy (CCPA/GDPR) review signed off</li><li>⬜ Certified badge granted after UAT</li>
+        </ul></div>
+    </section>
+
+    <!-- ADOPT -->
+    <section id="tab-adopt" class="tab">
+      <header class="pagehead"><div><h1>Adoption &amp; Usage</h1><p>Are people using the platform, and is it changing decisions? Usage drives what we build, improve or retire.</p></div></header>
+      <div class="cards4" id="adStats"></div>
+      <div class="grid2">
+        <div class="panel"><h2>Weekly active BI users</h2><div class="chartbox"><canvas id="cWau"></canvas></div></div>
+        <div class="panel"><h2>Self-service share of queries</h2><div class="chartbox"><canvas id="cSelf"></canvas></div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>Top dashboards (last 8 weeks)</h2><div id="tDash" class="tablewrap"></div></div>
+        <div class="panel"><h2>Retire or rework <small>low usage, last 8 weeks</small></h2><div id="tRetire" class="tablewrap"></div></div>
+      </div>
+    </section>
+    <!-- FAN IDENTITY -->
+    <section id="tab-fan" class="tab">
+      <header class="pagehead"><div><h1>Fan identity resolution (Fan 360)</h1><p>The same fan shows up in ticketing, League+, the shop and the fantasy app under different IDs and slightly different emails. Matching them into one golden record is what makes fan counts, churn and lifetime value trustworthy.</p></div></header>
+      <div class="cards4" id="fiStats"></div>
+      <div class="grid2">
+        <div class="panel"><h2>Match funnel <small>records → golden fans, rule by rule</small></h2><div class="chartbox"><canvas id="cFunnel"></canvas></div></div>
+        <div class="panel"><h2>Why it matters <small>only visible once identities are joined</small></h2><div id="fiImpact"></div></div>
+      </div>
+      <div class="panel"><h2>Sample matches <small>auto-merged · confidence ≥ 0.90</small></h2><div id="fiMatches" class="tablewrap" style="max-height:none"></div></div>
+      <div class="panel"><h2>Steward review queue <small>confidence 0.70–0.90 · a person decides</small></h2><div id="fiQueue" class="tablewrap" style="max-height:none"></div></div>
+      <div class="panel"><h2>Duplicate golden records already in <code>dim_fan</code> <small>found by the "Fan contact email is unique" quality check</small></h2><div id="fiDupes" class="tablewrap" style="max-height:none"></div></div>
+      <p class="muted fine">Synthetic records; match quality is measured against the synthetic ground truth. In production: AWS Entity Resolution (rule-based + ML matching) writing to a Gold identity graph, with steward review in the catalog.</p>
+    </section>
+
+    <!-- 90 DAY PLAN -->
+    <section id="tab-plan" class="tab">
+      <header class="pagehead"><div><h1>My first 90 days</h1><p>How I'd run this role at EXL: listen first, certify what matters, then scale self-service. Each item links to the part of this demo that shows it.</p></div></header>
+      <div class="rm3" id="planCols"></div>
+      <div class="panel mt"><h2>How I'll know it's working <small>targets by day 90</small></h2><div class="cards4 flat" id="planKpis"></div></div>
+      <div class="panel"><h2>Operating rhythm with partners</h2><div id="planPartners" class="tablewrap" style="max-height:none"></div></div>
+    </section>
+  </main>
+</div>
+
+<div id="tourBox" class="tourbox" hidden role="dialog" aria-label="Guided tour"><div id="tourText"></div><div class="tournav"><span id="tourStep"></span><button class="ghost" id="tourBack" type="button">← Back</button><button class="primary" id="tourNext" type="button">Next →</button><button class="ghost" id="tourExit" type="button">Exit</button></div></div>
+<div id="modal" class="modal" hidden><div class="modal-card" role="dialog" aria-modal="true"><button class="x" id="modalClose" aria-label="Close">×</button><div id="modalBody"></div></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/sql-hint.min.js"></script>
+<script src="data.js?v=25"></script>
+<script src="content.js?v=25"></script>
+<script src="app.js?v=25"></script>
+</body>
+</html>

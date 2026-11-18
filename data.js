@@ -1,0 +1,208 @@
+// Builds a deterministic, fully synthetic pro-football league warehouse in SQLite (sql.js).
+// Fictional franchises; not affiliated with or sourced from any league or club.
+function buildWarehouse(SQL){
+  const db=new SQL.Database();
+  let seed=20261118;
+  const r=()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+  const pick=a=>a[Math.floor(r()*a.length)];
+  const wpick=(items,weights)=>{let x=r()*weights.reduce((a,b)=>a+b,0);for(let i=0;i<items.length;i++){x-=weights[i];if(x<=0)return items[i]}return items[items.length-1]};
+  const between=(a,b)=>a+Math.floor(r()*(b-a+1));
+  const pad=n=>String(n).padStart(2,"0");
+  const iso=d=>d.getUTCFullYear()+"-"+pad(d.getUTCMonth()+1)+"-"+pad(d.getUTCDate());
+  const dkey=s=>+s.replace(/-/g,"");
+  const day=864e5, AS_OF=Date.UTC(2026,10,17);
+  const poisson=l=>{const L=Math.exp(-l);let k=0,p=1;do{k++;p*=r()}while(p>L);return k-1};
+
+  db.run(`
+  CREATE TABLE dim_date(date_key INTEGER PRIMARY KEY, date TEXT, year INTEGER, quarter TEXT, month INTEGER, month_name TEXT, day_of_week TEXT);
+  CREATE TABLE dim_team(team_id INTEGER PRIMARY KEY, team TEXT, city TEXT, state TEXT, conference TEXT, division TEXT, stadium_capacity INTEGER, market_size TEXT, surface TEXT);
+  CREATE TABLE dim_game(game_id INTEGER PRIMARY KEY, season INTEGER, week INTEGER, date_key INTEGER REFERENCES dim_date(date_key), game_date TEXT, kickoff_et TEXT, home_team_id INTEGER REFERENCES dim_team(team_id), away_team_id INTEGER REFERENCES dim_team(team_id), game_window TEXT, network TEXT, is_primetime INTEGER, surface TEXT, total_plays INTEGER, home_score INTEGER, away_score INTEGER);
+  CREATE TABLE fact_odds(game_id INTEGER PRIMARY KEY REFERENCES dim_game(game_id), source TEXT, open_spread REAL, current_spread REAL, open_total REAL, current_total REAL, home_moneyline INTEGER, away_moneyline INTEGER, home_handle_pct INTEGER, updated_at TEXT);
+  CREATE TABLE fact_ad_delivery(ad_id INTEGER PRIMARY KEY, game_id INTEGER REFERENCES dim_game(game_id), platform TEXT, ad_units INTEGER, impressions INTEGER, ad_spend REAL);
+  CREATE TABLE fact_game_attendance(game_id INTEGER PRIMARY KEY REFERENCES dim_game(game_id), capacity INTEGER, tickets_distributed INTEGER, scanned_attendance INTEGER, avg_ticket_price REAL, secondary_avg_price REAL, ticket_revenue REAL);
+  CREATE TABLE fact_viewership(view_id INTEGER PRIMARY KEY, game_id INTEGER REFERENCES dim_game(game_id), platform TEXT, avg_viewers_m REAL, minutes_viewed_m REAL);
+  CREATE TABLE dim_fan(fan_id INTEGER PRIMARY KEY, home_team_id INTEGER REFERENCES dim_team(team_id), segment TEXT, age_band TEXT, state TEXT, contact_email TEXT, signup_date TEXT, marketing_opt_in INTEGER);
+  CREATE TABLE fact_merch_orders(order_id INTEGER PRIMARY KEY, order_date TEXT, date_key INTEGER REFERENCES dim_date(date_key), fan_id INTEGER REFERENCES dim_fan(fan_id), team_id INTEGER REFERENCES dim_team(team_id), category TEXT, channel TEXT, quantity INTEGER, revenue REAL, cost REAL);
+  CREATE TABLE fact_subscriptions(sub_id INTEGER PRIMARY KEY, fan_id INTEGER REFERENCES dim_fan(fan_id), plan TEXT, start_date TEXT, end_date TEXT, monthly_price REAL);
+  CREATE TABLE fact_injuries(injury_id INTEGER PRIMARY KEY, game_id INTEGER REFERENCES dim_game(game_id), team_id INTEGER REFERENCES dim_team(team_id), body_part TEXT, severity TEXT, games_missed INTEGER);
+  CREATE TABLE bi_dashboard_usage(week_start TEXT, dashboard TEXT, department TEXT, certified INTEGER, active_users INTEGER, views INTEGER);
+  CREATE TABLE bi_query_log(week_start TEXT, user_type TEXT, query_count INTEGER);
+  `);
+  db.run("BEGIN");
+
+  const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],DW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const sd=db.prepare("INSERT INTO dim_date VALUES (?,?,?,?,?,?,?)");
+  for(let t=Date.UTC(2024,0,1);t<=Date.UTC(2026,11,31);t+=day){const d=new Date(t),m=d.getUTCMonth()+1;
+    sd.run([dkey(iso(d)),iso(d),d.getUTCFullYear(),"Q"+Math.ceil(m/3),m,MN[m-1],DW[d.getUTCDay()]])}
+  sd.free();
+
+  // 32 fictional franchises
+  const T=[
+    ["Boston Minutemen","Boston","MA","AFC","AFC East","L"],["New York Knights","New York","NY","AFC","AFC East","L"],["Buffalo Blizzard","Buffalo","NY","AFC","AFC East","S"],["Miami Riptide","Miami","FL","AFC","AFC East","M"],
+    ["Pittsburgh Ironmen","Pittsburgh","PA","AFC","AFC North","M"],["Cleveland Foundry","Cleveland","OH","AFC","AFC North","M"],["Cincinnati Rivermen","Cincinnati","OH","AFC","AFC North","S"],["Baltimore Harbormasters","Baltimore","MD","AFC","AFC North","M"],
+    ["Houston Roughnecks","Houston","TX","AFC","AFC South","L"],["Nashville Sound","Nashville","TN","AFC","AFC South","M"],["Jacksonville Surge","Jacksonville","FL","AFC","AFC South","S"],["Indianapolis Racers","Indianapolis","IN","AFC","AFC South","S"],
+    ["Denver Summit","Denver","CO","AFC","AFC West","M"],["Kansas City Plainsmen","Kansas City","MO","AFC","AFC West","S"],["Las Vegas High Rollers","Las Vegas","NV","AFC","AFC West","M"],["Los Angeles Comets","Los Angeles","CA","AFC","AFC West","L"],
+    ["Dallas Wranglers","Dallas","TX","NFC","NFC East","L"],["Philadelphia Liberty","Philadelphia","PA","NFC","NFC East","L"],["Washington Sentinels","Washington","DC","NFC","NFC East","L"],["Brooklyn Ironbacks","New York","NY","NFC","NFC East","L"],
+    ["Chicago Steel","Chicago","IL","NFC","NFC North","L"],["Green Bay Lumberjacks","Green Bay","WI","NFC","NFC North","S"],["Detroit Motormen","Detroit","MI","NFC","NFC North","M"],["Minneapolis Northmen","Minneapolis","MN","NFC","NFC North","M"],
+    ["Atlanta Firebirds","Atlanta","GA","NFC","NFC South","M"],["New Orleans Krewe","New Orleans","LA","NFC","NFC South","S"],["Tampa Bay Tarpons","Tampa","FL","NFC","NFC South","M"],["Charlotte Lightning","Charlotte","NC","NFC","NFC South","S"],
+    ["Seattle Evergreens","Seattle","WA","NFC","NFC West","M"],["San Francisco Fog","San Francisco","CA","NFC","NFC West","L"],["Phoenix Scorpions","Phoenix","AZ","NFC","NFC West","M"],["St. Louis Archers","St. Louis","MO","NFC","NFC West","S"]];
+  const MS={L:"Large",M:"Medium",S:"Small"},MF={L:1.15,M:1,S:.9},PRICE={L:168,M:138,S:116};
+  const teams=T.map((t,i)=>({id:i+1,name:t[0],city:t[1],state:t[2],conf:t[3],div:t[4],ms:t[5],cap:between(61,82)*1000,surface:r()<.5?"Grass":"Turf"}));
+  teams.forEach(t=>db.run("INSERT INTO dim_team VALUES (?,?,?,?,?,?,?,?,?)",[t.id,t.name,t.city,t.state,t.conf,t.div,t.cap,MS[t.ms],t.surface]));
+
+  // schedules: 2025 full season (18 wks); 2026 weeks 1–10 played, week 11 upcoming (as of Nov 17, 2026)
+  const WINDOWS=["Thursday Night","Sunday Night","Monday Night",...Array(8).fill("Sunday Early"),...Array(5).fill("Sunday Late")];
+  const OFF={"Thursday Night":0,"Sunday Night":3,"Monday Night":4,"Sunday Early":3,"Sunday Late":3};
+  const KICK={"Thursday Night":"8:15 PM","Sunday Night":"8:20 PM","Monday Night":"8:15 PM","Sunday Early":"1:00 PM","Sunday Late":"4:25 PM"};
+  const NET={"Thursday Night":"League+ (streaming)","Sunday Night":"Broadcast A","Monday Night":"Cable Sports + League+","Sunday Early":"Broadcast B / C (regional)","Sunday Late":"Broadcast B (national)"};
+  const VBASE={"Thursday Night":13.5,"Sunday Night":21,"Monday Night":16,"Sunday Early":8.5,"Sunday Late":15};
+  const CPM={Broadcast:[41,43],Cable:[36,37],Streaming:[50,54]};
+  const norm=()=>(r()+r()+r()+r()-2)*1.732;
+  const half=x=>Math.round(x*2)/2;
+  const ml=p=>p>=.5?-Math.round(100*p/(1-p)):Math.round(100*(1-p)/p);
+  teams.forEach(t=>{t.rating=(r()-.5)*14;t.off=20+r()*8});
+  const sg=db.prepare("INSERT INTO dim_game VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),sa=db.prepare("INSERT INTO fact_game_attendance VALUES (?,?,?,?,?,?,?)");
+  const sv=db.prepare("INSERT INTO fact_viewership VALUES (?,?,?,?,?)"),si=db.prepare("INSERT INTO fact_injuries VALUES (?,?,?,?,?,?)");
+  const so=db.prepare("INSERT INTO fact_odds VALUES (?,?,?,?,?,?,?,?,?,?)"),sd2=db.prepare("INSERT INTO fact_ad_delivery VALUES (?,?,?,?,?,?)");
+  const nowTs=new Date().toISOString().replace("T"," ").slice(0,19);
+  let gid=1,vid=1,iid=1,aid=1;const games=[];
+  [[2025,Date.UTC(2025,8,4),18,18],[2026,Date.UTC(2026,8,10),11,10]].forEach(([season,wk1,weeks,played])=>{
+    const g26=season===2026;
+    for(let w=1;w<=weeks;w++){
+      const done=w<=played;
+      const order=teams.slice();for(let i=order.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
+      for(let k=0;k<16;k++){
+        const home=order[2*k],away=order[2*k+1],win=WINDOWS[k],prime=["Thursday Night","Sunday Night","Monday Night"].includes(win)?1:0;
+        const date=iso(new Date(wk1+((w-1)*7+OFF[win])*day)),plays=done?between(122,152):null;
+        // odds & result
+        const exp=home.rating-away.rating+1.8,expT=home.off+away.off;
+        const oSpread=half(-(exp+norm()*1.5)),cSpread=oSpread+half(norm()*.7),oTotal=half(expT+norm()*2),cTotal=oTotal+half(norm()*.8);
+        const pH=1/(1+Math.exp(.155*cSpread));
+        let hs=null,as=null;
+        if(done){const m=exp+norm()*13,tp=Math.max(17,expT+norm()*10);hs=Math.max(0,Math.round((tp+m)/2));as=Math.max(0,Math.round((tp-m)/2));if(hs===as)hs+=3}
+        sg.run([gid,season,w,dkey(date),date,KICK[win],home.id,away.id,win,NET[win],prime,home.surface,plays,hs,as]);
+        so.run([gid,"Consensus",oSpread,cSpread,oTotal,cTotal,ml(Math.min(.97,pH+.02)),ml(Math.min(.97,1-pH+.02)),Math.round(Math.max(18,Math.min(82,50-cSpread*2.2+norm()*8))),done?date+" 23:59:00":nowTs]);
+        if(done){
+          const fill=Math.min(1.03,.93+r()*.08+(prime?.02:0)),dist=Math.round(home.cap*fill),scan=Math.round(dist*(.93+r()*.05));
+          const price=Math.round(PRICE[home.ms]*(prime?1.15:1)*(g26?1.06:1)*(w>12?1.05:1)*(.92+r()*.16)*100)/100;
+          sa.run([gid,home.cap,dist,scan,price,Math.round(price*(1.15+r()*.5+(prime?.25:0))*100)/100,Math.round(dist*price)]);
+          const viewers=VBASE[win]*((MF[home.ms]+MF[away.ms])/2)*(g26?1.05:1)*(.85+r()*.3);
+          const split=win==="Thursday Night"?{Streaming:1}:win==="Monday Night"?(g26?{Cable:.72,Streaming:.28}:{Cable:.8,Streaming:.2}):(g26?{Broadcast:.82,Streaming:.18}:{Broadcast:.88,Streaming:.12});
+          Object.entries(split).forEach(([pf,sh])=>{const v=Math.round(viewers*sh*100)/100;sv.run([vid++,gid,pf,v,Math.round(v*170*(.9+r()*.2)*10)/10]);
+            const units=between(28,34),imp=Math.round(v*1e6*units*(.92+r()*.16)),cpm=CPM[pf][g26?1:0]*(.9+r()*.2);
+            sd2.run([aid++,gid,pf,units,imp,Math.round(imp/1000*cpm)])});
+          [home,away].forEach(t=>{const n=poisson(1.05*(home.surface==="Turf"?1.18:1)*(g26?.88:1));
+            for(let x=0;x<n;x++){const sev=wpick(["Minor","Moderate","Severe"],[60,30,10]);
+              si.run([iid++,gid,t.id,pick(["Knee","Ankle","Hamstring","Shoulder","Concussion","Foot","Hip"]),sev,sev==="Minor"?between(0,1):sev==="Moderate"?between(1,4):between(4,12)])}});
+        }
+        games.push({gid,season,w,home,away});gid++;
+      }
+    }
+  });
+  // planted quality issues
+  db.run("UPDATE fact_game_attendance SET scanned_attendance = capacity + 6200 WHERE game_id = 301");
+  db.run("DELETE FROM fact_viewership WHERE game_id = 410");
+  db.run("DELETE FROM fact_ad_delivery WHERE game_id = 410");
+  // planted anomaly: partner ratings feed outage on 2026 Week 8 Thursday Night (streaming-only game 401) – ad server shows normal delivery
+  db.run("UPDATE fact_viewership SET avg_viewers_m = ROUND(avg_viewers_m * 0.34, 2), minutes_viewed_m = ROUND(minutes_viewed_m * 0.34, 1) WHERE game_id = 401");
+  db.run(`UPDATE fact_injuries SET team_id = (SELECT MIN(team_id) FROM dim_team WHERE team_id NOT IN
+     (SELECT home_team_id FROM dim_game WHERE game_id = (SELECT game_id FROM fact_injuries WHERE injury_id = 7))
+     AND team_id NOT IN (SELECT away_team_id FROM dim_game WHERE game_id = (SELECT game_id FROM fact_injuries WHERE injury_id = 7)))
+   WHERE injury_id = 7`);
+  sg.free();sa.free();sv.free();si.free();so.free();sd2.free();
+
+  // fans
+  const seg=["Season Ticket Holder","Casual","Streaming-first","Fantasy Player"],tw=teams.map(t=>({L:3,M:2,S:1}[t.ms]));
+  const fans=[],sf=db.prepare("INSERT INTO dim_fan VALUES (?,?,?,?,?,?,?,?)");
+  for(let i=1;i<=6000;i++){const t=wpick(teams,tw),s=wpick(seg,[12,38,30,20]);
+    const st=r()<.8?t.state:pick(teams).state;
+    const f={id:i,team:t,seg:s,oom:st!==t.state?1:0,aff:.15+r()*.85,email:`fan${(i*7919)%100000}.${t.city.toLowerCase().replace(/[^a-z]/g,"")}@example.com`};fans.push(f);
+    sf.run([i,t.id,s,pick(["18-24","25-34","25-34","35-44","35-44","45-54","55+"]),st,f.email,iso(new Date(Date.UTC(2019,0,1)+Math.floor(r()*2860)*day)),r()<.62?1:0])}
+  db.run("UPDATE dim_fan SET contact_email = (SELECT contact_email FROM dim_fan WHERE fan_id = 12) WHERE fan_id = 5999");
+  db.run("UPDATE dim_fan SET contact_email = (SELECT contact_email FROM dim_fan WHERE fan_id = 45) WHERE fan_id = 6000");
+  sf.free();
+
+  // League+ streaming subscriptions
+  const ss=db.prepare("INSERT INTO fact_subscriptions VALUES (?,?,?,?,?,?)");let sid=1;
+  fans.forEach(f=>{
+    if(r()>{"Streaming-first":.8,"Fantasy Player":.5,Casual:.35,"Season Ticket Holder":.3}[f.seg])return;
+    const y=wpick([2024,2025,2026],[25,35,40]);
+    let start=r()<.6?Date.UTC(y,7,15)+Math.floor(r()*46)*day:Date.UTC(y,0,1)+Math.floor(r()*365)*day;
+    if(start>AS_OF)start=AS_OF-Math.floor(r()*60)*day;
+    const prem0=r()<.35;
+    const logit=-1.1+(prem0?-.8:.5)+({Casual:.7,"Streaming-first":-.5,"Season Ticket Holder":-.4,"Fantasy Player":-.1}[f.seg])+(f.oom?.8:0)-2.2*(f.aff-.55);
+    let end=null;if(r()<1/(1+Math.exp(-logit))){const e=Date.UTC(new Date(start).getUTCFullYear()+1,1,5)+Math.floor(r()*50)*day;if(e<AS_OF)end=iso(new Date(e))}
+    const prem=prem0;ss.run([sid++,f.id,prem?"Premium":"Basic",iso(new Date(start)),end,prem?14.99:6.99]);
+  });
+  ss.free();
+
+  // merchandise
+  const SEAS=[.9,1.1,.45,.7,.4,.35,.45,.9,1.4,1.2,1.25,1.6],CAT={Jersey:130,Headwear:35,Apparel:60,Collectibles:90};
+  const sm=db.prepare("INSERT INTO fact_merch_orders VALUES (?,?,?,?,?,?,?,?,?,?)");let mid=500000;
+  for(let mi=0;mi<23;mi++){const y=2025+Math.floor(mi/12),m=mi%12;
+    const dim=new Date(Date.UTC(y,m+1,0)).getUTCDate(),last=(y===2026&&m===10)?16:dim;
+    const n=Math.round(300*SEAS[m]*(y===2026?1.12:1)*last/dim);
+    for(let k=0;k<n;k++){let f=pick(fans);while(r()>f.aff*1.3)f=pick(fans);const t=r()<.85?f.team:pick(teams),c=wpick(Object.keys(CAT),[35,25,28,12]),q=between(1,3);
+      const rev=Math.round(q*CAT[c]*(.85+r()*.3)*100)/100,date=iso(new Date(Date.UTC(y,m,between(1,last))));
+      sm.run([mid++,date,dkey(date),f.id,t.id,c,wpick(["Online","Stadium","Retail Partner"],[60,25,15]),q,rev,Math.round(rev*(.42+r()*.13)*100)/100])}}
+  sm.run([mid++,"2026-11-08",20261108,null,21,"Jersey","Online",1,129.99,58]);
+  sm.run([mid++,"2026-11-09",20261109,null,9,"Headwear","Online",2,69.98,31]);
+  sm.free();
+
+  // BI platform usage – weekly, 2026
+  const dashes=[["League Executive Scorecard","Executive",1,24],["Ticketing & Attendance","Club Business",1,58],["Media & Viewership","Media",1,41],["Fan 360","Marketing",1,36],
+    ["Merch & E-commerce","Consumer Products",1,29],["Club Business Benchmarks","Club Business",0,21],["Sponsorship ROI","Partnerships",0,15],["Legacy Ticketing Report (SSRS)","Club Business",0,26],["Concessions Aging","Stadium Ops",0,6]];
+  const su=db.prepare("INSERT INTO bi_dashboard_usage VALUES (?,?,?,?,?,?)"),sq=db.prepare("INSERT INTO bi_query_log VALUES (?,?,?)");
+  for(let w=0;w<45;w++){
+    const ws=iso(new Date(Date.UTC(2026,0,5)+w*7*day)),inSeason=w>=35?1.25:w<6?1.15:1;
+    dashes.forEach(([name,dept,cert,base])=>{
+      let g=(1+w*.016)*inSeason;
+      if(name.startsWith("Legacy"))g=Math.max(.04,1-w*.03);
+      if(name==="Concessions Aging")g=w>20?.15:1;
+      if(name==="Fan 360"&&w<10)g=.35;
+      const u=Math.max(0,Math.round(base*g*(.9+r()*.2)));
+      su.run([ws,name,dept,cert,u,Math.round(u*(2.5+r()*2))]);
+    });
+    const total=900+w*14,share=.24+Math.min(.34,w*.0085)+(r()-.5)*.03;
+    sq.run([ws,"Business user",Math.round(total*share)]);sq.run([ws,"Analyst",Math.round(total*(1-share))]);
+  }
+  su.free();sq.free();
+  // ---------- warehouse operations: SCD2 history, pipeline runs, cost ----------
+  db.run(`CREATE TABLE dim_team_scd(team_key INTEGER PRIMARY KEY, team_id INTEGER REFERENCES dim_team(team_id), team TEXT, stadium_capacity INTEGER, surface TEXT, valid_from TEXT, valid_to TEXT, is_current INTEGER);
+    CREATE TABLE etl_job_runs(run_id INTEGER PRIMARY KEY, job TEXT, layer TEXT, load_pattern TEXT, started_at TEXT, duration_s INTEGER, rows_processed INTEGER, status TEXT);
+    CREATE TABLE warehouse_cost_daily(date TEXT PRIMARY KEY, compute_credits REAL, storage_tb REAL, queries INTEGER, avg_query_s REAL);`);
+  const scd=db.prepare("INSERT INTO dim_team_scd VALUES (?,?,?,?,?,?,?,?)");let tk=1;
+  const changed={3:["Grass","2026-03-01"],10:["Turf","2026-03-01"],18:[null,"2026-04-15"],27:["Grass","2026-05-01"],30:[null,"2026-02-20"]};
+  teams.forEach(t=>{
+    if(changed[t.id]){const [surf,when]=changed[t.id];
+      const oldCap=surf?t.cap:t.cap-4000,oldSurf=surf?(t.surface==="Grass"?"Turf":"Grass"):t.surface;
+      scd.run([tk++,t.id,t.name,oldCap,oldSurf,"2019-01-01",when,0]);
+      scd.run([tk++,t.id,t.name,t.cap,t.surface,when,"9999-12-31",1]);
+    }else scd.run([tk++,t.id,t.name,t.cap,t.surface,"2019-01-01","9999-12-31",1]);
+  });
+  scd.free();
+  const JOBS=[["ingest_ticketing","Bronze","Incremental (hourly)",40,180000],["ingest_gate_scans","Bronze","Streaming (Kinesis)",30,900000],["ingest_ratings_feed","Bronze","Daily file",20,4000],
+    ["ingest_odds_stream","Bronze","Streaming (Kinesis)",15,250000],["ingest_ecommerce","Bronze","CDC (Fivetran)",35,22000],["ingest_streaming_subs","Bronze","CDC (Fivetran)",25,9000],
+    ["stg_tickets","Silver","Incremental merge",90,180000],["stg_scans","Silver","Incremental merge",120,900000],["stg_viewership","Silver","Full refresh",30,1800],["stg_odds","Silver","Stream validate + dedupe",4,250000],["stg_fans","Silver","Incremental merge",150,6000],
+    ["fact_game_attendance","Gold","Incremental merge",45,160],["fact_viewership","Gold","Incremental merge",20,320],["fact_ad_delivery","Gold","Incremental merge",25,320],["fact_merch_orders","Gold","Incremental merge",60,900],
+    ["fact_odds","Gold","Streaming upsert",5,16],["dim_fan (Fan 360)","Gold","SCD type 1 merge",200,6000],["dim_team_scd","Gold","SCD type 2",10,32],["dq_checks","Gold","Post-load tests",60,11],["semantic_refresh","Semantic","Metric cache refresh",40,14],["bi_extract_refresh","BI","Extract refresh",300,40]];
+  const sj=db.prepare("INSERT INTO etl_job_runs VALUES (?,?,?,?,?,?,?,?)");let rid=1;
+  for(let d=13;d>=0;d--){const date=new Date(AS_OF-d*day);
+    JOBS.forEach(([job,layer,pat,dur,rows],k)=>{
+      const ts=sec=>new Date(date.getTime()+(5*3600+k*240+sec)*1000).toISOString().replace("T"," ").slice(0,19);
+      const D=Math.round(dur*(.8+r()*.5)),N=Math.round(rows*(.85+r()*.3));
+      if(d===3&&job==="ingest_ratings_feed"){sj.run([rid++,job,layer,pat,ts(0),D,0,"Failed"]);sj.run([rid++,job,layer,pat,ts(2700),D,N,"Success (rerun)"]);return}
+      if(d===0&&job==="bi_extract_refresh"){sj.run([rid++,job,layer,pat,ts(0),null,null,"Running"]);return}
+      sj.run([rid++,job,layer,pat,ts(0),D,N,d===1&&job==="stg_scans"?"Success (retried)":"Success"]);
+    });
+  }
+  sj.free();
+  const sc=db.prepare("INSERT INTO warehouse_cost_daily VALUES (?,?,?,?,?)");
+  for(let d=44;d>=0;d--){const dt=new Date(AS_OF-d*day),dow=dt.getUTCDay(),gameDay=dow===0||dow===1||dow===4;
+    const opt=d<=15?.72:1; // clustering + aggregate tables shipped Nov 2
+    sc.run([iso(dt),Math.round((gameDay?210:140)*opt*(.9+r()*.2)*10)/10,Math.round((18.2+(44-d)*.03)*100)/100,Math.round((gameDay?5200:3100)*(.9+r()*.2)),Math.round((gameDay?3.8:2.6)*(opt<1?.55:1)*(.9+r()*.2)*100)/100]);
+  }
+  sc.free();
+  db.run("COMMIT");
+  return db;
+}
