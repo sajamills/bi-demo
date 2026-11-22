@@ -269,16 +269,20 @@ function buildInternational(db,iso,day){
         const fol=ch==="Social"?R(rc*rb(.003,.006)*m.k1*PF1[m.pres]):0;
         sa.run([m.id,wk.ws,t.id,ch,rc,im,sp,R(rc*rb(vv[0],vv[1])),fol]);reach+=rc;imps+=im;
       });
-      // Know: a share of the people reached create a league ID (capped so the funnel never inverts)
-      const reg=Math.min(reach,R(reach*.0088*m.k1*PF1[m.pres]*(y26?1.07:1)*(gw>=0&&gw<=4?1.35:1)*rb(.85,1.15)));
-      sk.run([m.id,wk.ws,t.id,Math.min(reach,R(reg*rb(1.35,1.75))),reg,Math.min(reg,R(reg*rb(.36,.54))),R(imps*rb(.018,.03)*(.75+.25*PF1[m.pres])),Math.min(reg,R(reg*rb(.08,.14)))]);
-      // Engage: a share of registered fans buy, attend or subscribe
-      const engaged=Math.min(reg,R(reg*.24*m.k2*PF2[m.pres]*(y26?1.05:1)*(gw>=0&&gw<=5?1.2:1)*rb(.85,1.15)));
-      const orders=R(engaged*rb(.55,.7)),playing=game&&game.teams.includes(t.id),share=playing?.2:.6*wts[ti]/others;
-      let tix=R(engaged*rb(.02,.06)),att=0;
-      if(game&&TW[gw])tix+=R(game.cap*.8*TW[gw]*share*rb(.9,1.1));
+      // Engage demand: game tickets and attendance for international games
+      const playing=game&&game.teams.includes(t.id),share=playing?.2:.6*wts[ti]/others;
+      let gtix=0,att=0;
+      if(game&&TW[gw])gtix=R(game.cap*.8*TW[gw]*share*rb(.9,1.1));
       if(game&&gw===0)att=R(game.cap*game.fill*share);
-      se.run([m.id,wk.ws,t.id,tix,att,orders,r2(orders*m.aov*rb(.9,1.12)),R(engaged*rb(.17,.25)),R(engaged*rb(.26,.4)*(.7+.3*PF2[m.pres])),engaged]);
+      // Know: a share of the people reached create a league ID; game buyers and attendees need one (capped so the funnel never inverts)
+      const reg0=R(reach*.0088*m.k1*PF1[m.pres]*(y26?1.07:1)*(gw>=0&&gw<=4?1.35:1)*rb(.85,1.15));
+      // Engage: a share of registered fans buy, attend or subscribe
+      const eng0=R(reg0*.24*m.k2*PF2[m.pres]*(y26?1.05:1)*(gw>=0&&gw<=5?1.2:1)*rb(.85,1.15));
+      const orders=R(eng0*rb(.55,.7));
+      const tix=Math.min(reach,gtix+R(eng0*rb(.02,.06))),attended=Math.min(reach,att);
+      const engaged=Math.min(reach,Math.max(Math.min(reg0,eng0),tix,attended)),reg=Math.max(Math.min(reach,reg0),engaged);
+      sk.run([m.id,wk.ws,t.id,Math.min(reach,R(reg*rb(1.35,1.75))),reg,Math.min(reg,R(reg*rb(.36,.54))),R(imps*rb(.018,.03)*(.75+.25*PF1[m.pres])),Math.min(reg,R(reg*rb(.08,.14)))]);
+      se.run([m.id,wk.ws,t.id,tix,attended,Math.min(orders,engaged),r2(Math.min(orders,engaged)*m.aov*rb(.9,1.12)),Math.min(engaged,R(eng0*rb(.17,.25))),Math.min(engaged,R(eng0*rb(.26,.4)*(.7+.3*PF2[m.pres]))),engaged]);
     });
   }));
   sa.free();sk.free();se.free();
