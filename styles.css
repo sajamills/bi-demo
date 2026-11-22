@@ -191,3 +191,70 @@ pre.code{background:#0f1b2a;color:#d7e3f1;padding:12px;border-radius:8px;overflo
 .pcol .deliv{border-top:1px solid var(--line);padding-top:8px;font-size:12.5px}
 .conf{display:inline-block;min-width:38px;font-weight:700}
 @media (max-width:900px){.hstrip{grid-template-columns:repeat(2,1fr)}.wi{grid-template-columns:1fr}}
+/* --- International Fan Journey (See / Know / Engage) --- */
+:root{--see:#14918f;--know:#2457d6;--engage:#d07a12}
+.s-see{--sc:var(--see)}.s-know{--sc:var(--know)}.s-engage{--sc:var(--engage)}
+.ibar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.fine0{font-size:12.5px}
+.istages{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.istage{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--sc);border-radius:12px;padding:14px;min-width:0}
+.istage.s-engage{order:1}.istage.s-know{order:2}.istage.s-see{order:3}
+.istages.see-first .s-see{order:1}.istages.see-first .s-engage{order:3}
+.istage h2{margin:0;font-size:17px;display:flex;align-items:center;gap:8px}
+.istage h2 small{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.sdot{width:10px;height:10px;border-radius:50%;background:var(--sc);display:inline-block}
+.istage .sq{margin:4px 0 10px;color:var(--muted);font-size:13px}
+.iconv{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;font-size:12.5px;background:color-mix(in srgb,var(--sc) 9%,var(--surface));border-radius:8px;padding:7px 10px;margin-bottom:10px}
+.iconv b{font-family:var(--mono);font-size:15px}
+.ikpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.ikpis .kpi{padding:10px 12px;min-width:0}
+.ikpis .kpi .val{font-size:19px;overflow-wrap:anywhere}
+.spark{display:block;width:100%;height:24px;margin:2px 0 4px}
+.grid-12{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.9fr);gap:16px;margin-bottom:16px}.grid-12>.panel{margin-bottom:0}
+.ifun{display:grid;gap:2px}
+.ifs .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12.5px;margin-bottom:4px;flex-wrap:wrap}
+.ifs .top b{font-family:var(--mono);font-size:16px}.ifs .top b.lab{font-family:inherit;font-size:13.5px}
+.ifs .fb{height:24px;border-radius:6px;background:var(--sc)}
+.ifc{font-size:12.5px;color:var(--muted);padding:8px 0 8px 12px;margin-left:10px;border-left:2px dashed var(--line)}
+.ifc b{color:var(--fg);font-family:var(--mono)}
+.ifo{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;font-size:13px}
+.sortbtn{background:none;border:0;font:inherit;color:inherit;cursor:pointer;padding:0;white-space:nowrap}
+.isort tbody tr[data-imkt]{cursor:pointer}.isort tbody tr[data-imkt]:hover td{background:#f7f9fc}
+.isort tr.sel td{background:var(--accent-soft)!important}
+.isort td.weak{background:var(--bad-soft);color:var(--bad);font-weight:600}.isort td.weakok{background:var(--warn-soft);color:var(--warn);font-weight:600}
+#iMarkets th,#iMarkets td{padding:7px 7px}
+.isort tr.tot td{border-top:2px solid var(--line);background:#f8fafc}
+.ihead{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px}.ihead h2{margin:0}
+.ictl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hm th{white-space:nowrap}
+.hm td.c{cursor:pointer;min-width:70px;color:var(--fg)}
+.hm td.c.dark{color:#fff}
+.hm td.c:hover,.hm td.c:focus-visible{outline:2px solid var(--fg);outline-offset:-2px}
+.hm td.c.on{box-shadow:inset 0 0 0 3px var(--fg)}
+.hm th.on{color:var(--fg);box-shadow:inset 0 -3px 0 var(--fg)}
+.hm tr.on td.club{font-weight:700;color:var(--accent)}
+.hmlegend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12px;color:var(--muted);align-items:center}
+.hmlegend i{display:inline-block;width:22px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid var(--line)}
+.ical,.grow12{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:2px}
+.ical{margin-bottom:6px}
+.ical .m{font-size:11px;font-weight:600;text-align:center;padding:5px 0;border-radius:4px;color:var(--fg);min-width:0;overflow:hidden}
+.m.post{background:var(--bad-soft)}.m.off{background:var(--good-soft)}.m.pre{background:var(--warn-soft)}.m.season{background:var(--accent-soft)}
+.igantt{display:grid;gap:4px;margin-bottom:6px}
+.gb{border-radius:6px;background:var(--sc,#5b6b7a);color:#fff;font-size:11.5px;font-weight:600;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ikey{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--muted);margin:8px 0 16px}
+.ikey i{display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}.ikey b{color:var(--fg);font-weight:600}
+.iphases{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;position:relative}
+.iphases::before{content:"";position:absolute;left:12px;right:12px;top:24px;height:2px;background:var(--line)}
+.iphase{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0;position:relative}
+.iphase .pn{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:12px;margin-bottom:6px}
+.iphase .when{font-size:11.5px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.iphase h3{margin:2px 0 6px;font-size:14px}
+.iphase p{font-size:12.5px;color:var(--muted);margin:8px 0}
+.iphase dl{margin:8px 0 0;display:grid;gap:3px;font-size:12.5px}
+.iphase dt{font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px}
+.iphase dd{margin:0}.iphase dd .sub{display:block;margin-top:4px;font-size:12px;color:var(--muted)}
+.schip{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;background:color-mix(in srgb,var(--sc) 14%,var(--surface));color:color-mix(in srgb,var(--sc) 70%,#000)}
+@media (max-width:1280px){.istages{grid-template-columns:1fr}.iphases{grid-template-columns:repeat(3,minmax(0,1fr))}.iphases::before{display:none}}
+@media (max-width:1600px){.grid-12{grid-template-columns:1fr}}
+@media (max-width:900px){.iphases{grid-template-columns:1fr}}
+@media (max-width:600px){#tab-intl .seg button{padding:8px 10px;font-size:13px}.ikpis{grid-template-columns:repeat(2,minmax(0,1fr))}.ical .m{font-size:9.5px}.gb{font-size:10.5px;padding:3px 5px}}

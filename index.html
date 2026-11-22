@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Gridiron League Data Platform</title>
-<meta name="description" content="Demo league data and BI platform with synthetic data: KPI scorecard, star-schema ERD, SQL Lab, roadmap, governance and adoption.">
+<meta name="description" content="Demo league data and BI platform with synthetic data: KPI scorecard, star-schema ERD, SQL Lab, roadmap, governance, adoption and an International Fan Journey (See / Know / Engage) view of clubs in international markets.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230f1b2a%22/%3E%3Cpath d=%22M16 6l8 10-8 10-8-10z%22 fill=%22%236f9bff%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
-<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="styles.css?v=26">
 </head>
 <body>
 <div class="app">
@@ -27,6 +27,7 @@
       <button data-tab="sql">SQL Lab</button>
       <button data-tab="churn">Churn model (League+)</button>
       <button data-tab="fan">Fan identity (Fan 360)</button>
+      <button data-tab="intl">International Fan Journey</button>
       <button data-tab="roadmap">Roadmap</button>
       <button data-tab="gov">Governance &amp; Quality</button>
       <button data-tab="adopt">Adoption</button>
@@ -42,7 +43,7 @@
   <main>
     <!-- OVERVIEW -->
     <section id="tab-overview" class="tab on">
-      <header class="pagehead"><div><h1>Data &amp; BI Platform – Command Center</h1><p>One place for the league's data roadmap, certified KPIs across ticketing, media, streaming, merchandise and player health, the governed data model, self-service SQL, data quality and adoption – for the league office and all 32 clubs. Every number is computed live, in your browser, against a synthetic warehouse.</p></div></header>
+      <header class="pagehead"><div><h1>Data &amp; BI Platform – Command Center</h1><p>One place for the league's data roadmap, certified KPIs across ticketing, media, streaming, merchandise and player health, the governed data model, self-service SQL, data quality and adoption – for the league office and all 32 clubs, plus the International Fan Journey (See / Know / Engage) for clubs growing fans abroad. Every number is computed live, in your browser, against a synthetic warehouse.</p></div></header>
       <div class="cards4" id="ovStats"></div>
       <div class="panel"><h2>AWS reference architecture <small>click any service for its role, why we chose it, and cost</small></h2><div id="ovArch" class="svgwrap"></div></div>
       <div class="grid2">
@@ -133,7 +134,7 @@
     <!-- ERD -->
     <section id="tab-erd" class="tab">
       <header class="pagehead"><div><h1>Data Model &amp; ERD</h1><p>Gold-layer star schema that every certified league and club dashboard reads from. Hover a table to trace its joins; tap it for owner, row count and a sample query.</p></div>
-        <div class="seg" role="group" aria-label="View"><button data-erd="star" class="on">Star schema</button><button data-erd="arch">Platform architecture</button><button data-erd="lineage">KPI lineage</button></div>
+        <div class="seg" role="group" aria-label="View"><button data-erd="star" class="on">Star schema</button><button data-erd="arch">Platform architecture</button><button data-erd="lineage">KPI lineage</button><button data-erd="intl">International mart</button></div>
       </header>
       <div class="panel"><div id="erd" class="svgwrap erd"></div></div>
       <div class="panel" id="erdInfo"><p class="muted">Select a table to see its details.</p></div>
@@ -254,6 +255,32 @@
       <p class="muted fine">Synthetic records; match quality is measured against the synthetic ground truth. In production: AWS Entity Resolution (rule-based + ML matching) writing to a Gold identity graph, with steward review in the catalog.</p>
     </section>
 
+    <!-- INTERNATIONAL FAN JOURNEY -->
+    <section id="tab-intl" class="tab">
+      <header class="pagehead"><div><h1>International Fan Journey: See / Know / Engage</h1><p>The business users are the clubs. This is the league-wide view the league office international team uses to compare every club in every market.</p></div>
+        <div class="filters">
+          <label>Market<select id="iMarket"><option value="">All markets</option></select></label>
+          <label>Club<select id="iClub"><option value="">All clubs</option></select></label>
+          <label>Period<select id="iPeriod"></select></label>
+        </div>
+      </header>
+      <div class="ibar"><div class="seg" role="group" aria-label="Stage order"><button data-iorder="engage" class="on" type="button">Engage → Know → See</button><button data-iorder="see" type="button">See → Know → Engage</button></div><span class="muted fine0" id="iScope"></span></div>
+      <div class="istages" id="iStages"></div>
+      <div class="grid-12">
+        <div class="panel"><h2>Stage-to-stage conversion <small id="iFunSub"></small></h2><div id="iFunnel"></div></div>
+        <div class="panel"><h2>Conversion by market <small>click a market to filter · weaker step highlighted: red = below the league benchmark</small></h2><div id="iMarkets" class="tablewrap" style="max-height:none"></div></div>
+      </div>
+      <div class="panel">
+        <div class="ihead"><h2>Club × market heatmap <small id="iHmSub">click a cell to filter by club and market</small></h2>
+          <div class="ictl"><div class="seg" role="group" aria-label="Heatmap metric"><button data-ihm="reach" class="on" type="button">Reach</button><button data-ihm="registered" type="button">Registered</button><button data-ihm="overall" type="button">Conversion</button></div><button class="ghost" id="iHmAll" type="button">Show all 32 clubs</button></div></div>
+        <div id="iHeat" class="tablewrap" style="max-height:none"></div><div id="iHmLegend" class="hmlegend"></div>
+      </div>
+      <div class="panel" id="iRoad"><h2>Roadmap to implement <small>phased data &amp; BI rollout · timed to the 2027 football calendar</small></h2>
+        <div id="iCal"></div><div class="iphases" id="iPhases"></div>
+        <h2 class="mt">Dependencies &amp; risks</h2><div id="iDeps" class="tablewrap" style="max-height:none"></div></div>
+      <p class="muted fine">Synthetic international data for fictional clubs and venues. In production: social, ad-platform, app-analytics, international ticketing and broadcast-partner feeds through the same Bronze → Silver → Gold pipeline, with consent enforced per market.</p>
+    </section>
+
     <!-- 90 DAY PLAN -->
     <section id="tab-plan" class="tab">
       <header class="pagehead"><div><h1>My first 90 days</h1><p>How I'd run this role at EXL: listen first, certify what matters, then scale self-service. Each item links to the part of this demo that shows it.</p></div></header>
@@ -273,8 +300,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/sql-hint.min.js"></script>
-<script src="data.js?v=25"></script>
-<script src="content.js?v=25"></script>
-<script src="app.js?v=25"></script>
+<script src="data.js?v=26"></script>
+<script src="content.js?v=26"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>

@@ -419,9 +419,9 @@ function renderErd(view="star"){
   document.querySelectorAll("[data-erd]").forEach(b=>b.classList.toggle("on",b.dataset.erd===view));
   if(view==="arch"){$("#erd").innerHTML=flow(ARCH);return}
   if(view==="lineage"){$("#erd").innerHTML=flow(LINEAGE);return}
-  const T=ERD.tables,anchor=(t,c)=>T[t].y+HH+T[t].cols.findIndex(x=>x[0]===c)*RH+RH/2;
-  let s=`<svg viewBox="0 0 1130 ${ERD.height||690}" role="img" aria-label="Star schema entity relationship diagram">`;
-  ERD.rels.forEach(([a,ac,b,bc],i)=>{
+  const S=view==="intl"?ERD_INTL:ERD,T=S.tables,anchor=(t,c)=>T[t].y+HH+T[t].cols.findIndex(x=>x[0]===c)*RH+RH/2;
+  let s=`<svg viewBox="0 0 1130 ${S.height||690}" role="img" aria-label="${view==="intl"?"International fan journey mart":"Star schema"} entity relationship diagram">`;
+  S.rels.forEach(([a,ac,b,bc],i)=>{
     const A=T[a],B=T[b],y1=anchor(a,ac),y2=anchor(b,bc);let d,x1,x2;
     if(Math.abs(A.x-B.x)<50){x1=A.x+BW;x2=B.x+BW;d=`M${x1},${y1} C${x1+50},${y1} ${x2+50},${y2} ${x2},${y2}`}
     else{const r=B.x>A.x;x1=r?A.x+BW:A.x;x2=r?B.x:B.x+BW;const dx=(x2-x1)/2;d=`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`}
@@ -444,12 +444,12 @@ function renderErd(view="star"){
   svg.querySelectorAll(".tbl").forEach(g=>{
     const t=g.dataset.t,hot=on=>svg.querySelectorAll(".rel").forEach(p=>p.classList.toggle("hot",on&&(p.dataset.a===t||p.dataset.b===t)));
     g.addEventListener("mouseenter",()=>hot(true));g.addEventListener("mouseleave",()=>hot(false));
-    const pickT=()=>{svg.querySelectorAll(".tbl").forEach(x=>x.classList.toggle("sel",x===g));erdInfo(t)};
+    const pickT=()=>{svg.querySelectorAll(".tbl").forEach(x=>x.classList.toggle("sel",x===g));erdInfo(t,S)};
     g.addEventListener("click",pickT);g.addEventListener("keydown",e=>{if(e.key==="Enter")pickT()});
   });
 }
-function erdInfo(t){
-  const T=ERD.tables[t],n=one(`SELECT COUNT(*) FROM ${t}`),rel=ERD.rels.filter(r=>r[0]===t||r[2]===t);
+function erdInfo(t,S=ERD){
+  const T=S.tables[t],n=one(`SELECT COUNT(*) FROM ${t}`),rel=S.rels.filter(r=>r[0]===t||r[2]===t);
   const cat=CATALOG.find(c=>c[0]===t);
   $("#erdInfo").innerHTML=`<h2>${t} <span class="badge ${t.startsWith("fact")?"b-info":"b-cert"}">${t.startsWith("fact")?"Fact":"Dimension"}</span> ${cat?`<span class="badge ${cat[4]==="PII"||cat[4]==="Restricted"?"b-bad":"b-warn"}">${cat[4]}</span>`:""}</h2>
     <p>${esc(T.desc)}</p><dl class="kv"><dt>Rows (live)</dt><dd>${n.toLocaleString()}</dd><dt>Owner</dt><dd>${esc(T.owner)}</dd>${cat?`<dt>Steward</dt><dd>${esc(cat[3])}</dd><dt>Freshness SLA</dt><dd>${esc(cat[5])}</dd>`:""}
@@ -739,7 +739,135 @@ function renderPlan(){
 $("#dcYaml").textContent=DATA_CONTRACT;
 
 
-const RENDER={fan:renderFan,plan:renderPlan,overview:renderOverview,kpi:renderKpi,odds:renderOdds,wh:renderWh,brief:renderBrief,ask:renderAsk,churn:renderChurn,erd:()=>renderErd("star"),sql:renderSql,roadmap:renderRoadmap,gov:renderGov,adopt:renderAdopt};
+/* ---------- International Fan Journey (See / Know / Engage) ---------- */
+let iHm="reach",iHmAll=false,iSort={k:"overall",dir:-1};
+const cnt=n=>n==null?"–":Math.abs(n)>=1e9?(n/1e9).toFixed(2)+"B":Math.abs(n)>=1e6?(n/1e6).toFixed(2)+"M":Math.abs(n)>=1e4?(n/1e3).toFixed(1)+"K":Math.round(n).toLocaleString();
+const IFMT={cnt,money,money2:FMT.money2,pct:FMT.pct,pct2:n=>n==null?"–":n.toFixed(2)+"%",pct3:n=>n==null?"–":n.toFixed(3)+"%"};
+const PRES_ORDER={Established:1,Growth:2,Emerging:3};
+function intlFilters(){
+  const p=INTL_PERIODS[$("#iPeriod").value||"std"],mk=(a,b)=>({start:a,end:b,quarters:intlQuarters(a,b)});
+  const f={...mk(p.start,p.end),mkt:+$("#iMarket").value||0,team:+$("#iClub").value||0,label:p.label};
+  f.prior={...f,...mk(p.prior.start,p.prior.end)};return f;
+}
+function spark(vals,color){
+  const v=vals.filter(x=>x!=null);if(v.length<2)return `<svg class="spark" viewBox="0 0 100 24" aria-hidden="true"></svg>`;
+  const lo=Math.min(...v),sp=(Math.max(...v)-lo)||1,pts=vals.map((x,i)=>(i*100/(vals.length-1)).toFixed(1)+","+(22-20*((x??lo)-lo)/sp).toFixed(1));
+  return `<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+// change vs the same weeks of 2025: % for counts and money, points for rates
+function intlDelta(k,v,p){
+  if(v==null)return `<span class="delta muted">no data</span>`;
+  if(p==null||p===0)return `<span class="delta muted">${v>0?"new vs 2025":k.id==="attendance"?"no international game":"none in period"}</span>`;
+  const isPct=/^pct/.test(k.fmt),ch=isPct?v-p:100*(v-p)/Math.abs(p),good=k.inverse?ch<0:ch>0;
+  if(Math.abs(ch)<(isPct&&Math.abs(v)<10?.005:.05))return `<span class="delta muted">flat YoY</span>`;
+  return `<span class="delta ${good?"up":"down"}">${ch>0?"▲":"▼"} ${Math.abs(ch).toFixed(isPct&&Math.abs(ch)<1?2:1)}${isPct?" pts":"%"} YoY</span>`;
+}
+const funnel=f=>rows(intlFunnelSql(f))[0]||{};
+function renderIntl(){
+  if(!db)return;
+  if(!$("#iPeriod").options.length){
+    $("#iPeriod").innerHTML=Object.entries(INTL_PERIODS).map(([k,p])=>`<option value="${k}">${esc(p.label)}</option>`).join("");
+    $("#iMarket").insertAdjacentHTML("beforeend",rows("SELECT market_id, country, league_presence FROM dim_market ORDER BY market_id").map(m=>`<option value="${m.market_id}">${esc(m.country)} · ${esc(m.league_presence)}</option>`).join(""));
+    $("#iClub").insertAdjacentHTML("beforeend",rows("SELECT team_id, team FROM dim_team ORDER BY team").map(t=>`<option value="${t.team_id}">${esc(t.team)}</option>`).join(""));
+  }
+  const f=intlFilters(),mName=f.mkt?$("#iMarket").selectedOptions[0].textContent.split(" · ")[0]:"all markets",cName=f.team?$("#iClub").selectedOptions[0].textContent:"all clubs";
+  $("#iScope").textContent=`Showing ${cName} in ${mName} · ${f.label} · changes vs the same weeks of 2025`;
+  const fu=funnel(f),fp=funnel(f.prior);
+  renderIntlStages(f,fu,fp);renderIntlFunnel(f,fu,fp);renderIntlMarkets(f);renderIntlHeat(f);
+  if(!$("#iPhases").innerHTML)renderIntlRoadmap();
+}
+function renderIntlStages(f,fu,fp){
+  const conv={know:["See → Know",fu.see_to_know_pct,fp.see_to_know_pct,2],engage:["Know → Engage",fu.know_to_engage_pct,fp.know_to_engage_pct,1]};
+  $("#iStages").innerHTML=Object.entries(INTL_STAGES).map(([st,S])=>{
+    const color=css("--"+st),c=conv[st];
+    const chip=c?`<span>${c[0]}</span> <b>${c[1]==null?"–":c[1].toFixed(c[3])+"%"}</b> ${c[1]!=null&&c[2]?`<span class="${c[1]>=c[2]?"up":"down"}">${c[1]>=c[2]?"▲":"▼"} ${Math.abs(c[1]-c[2]).toFixed(2)} pts</span>`:""}`
+      :`<span>Top of funnel</span> <b>${cnt(fu.reach)}</b> <span class="muted">reached</span>`;
+    const tiles=INTL_KPIS.filter(k=>k.stage===st).map(k=>{
+      const v=one(k.sql(f)),p=one(k.sql(f.prior)),series=q(k.sql(f,true)).values.map(r=>r[1]);
+      return `<div class="kpi"><div class="lbl"><span>${esc(k.label)}</span><button class="info" data-ikpi="${k.id}" aria-label="About ${esc(k.label)}">ⓘ</button></div>
+        <div class="val">${IFMT[k.fmt](v)}</div>${spark(series,color)}${intlDelta(k,v,p)}</div>`}).join("");
+    return `<section class="istage s-${st}" aria-label="${S.name} stage"><h2><i class="sdot"></i>${S.name} <small>${S.sub}</small></h2><p class="sq">${esc(S.q)}</p>
+      <div class="iconv">${chip}</div><div class="ikpis">${tiles}</div></section>`}).join("");
+}
+function renderIntlFunnel(f,fu,fp){
+  $("#iFunSub").textContent="bar length on a log scale";
+  const steps=[["see","Reached","people reached (gross weekly reach)",fu.reach],["know","Registered fans","new registered / identified fans",fu.registered],["engage","Engaged fans","bought, attended or subscribed",fu.engaged]];
+  const mx=Math.log10(Math.max(1,fu.reach||1)),w=v=>v?Math.max(8,100*Math.log10(Math.max(1,v))/mx):0;
+  const gap=(lab,v,p,d)=>`<div class="ifc">↓ <b>${v==null?"–":v.toFixed(d)+"%"}</b> ${lab}${v!=null&&p?` · <span class="${v>=p?"up":"down"}">${v>=p?"▲":"▼"} ${Math.abs(v-p).toFixed(2)} pts YoY</span>`:""}</div>`;
+  $("#iFunnel").innerHTML=`<div class="ifun">${steps.map(([st,l,sub,v],i)=>`<div class="ifs s-${st}"><div class="top"><span><b class="lab">${l}</b> <span class="muted">${sub}</span></span><b>${cnt(v)}</b></div><div class="fb" style="width:${w(v)}%"></div></div>`+
+    (i===0?gap("register (See → Know)",fu.see_to_know_pct,fp.see_to_know_pct,2):i===1?gap("engage (Know → Engage)",fu.know_to_engage_pct,fp.know_to_engage_pct,1):"")).join("")}</div>
+    <div class="ifo">Overall: <b>${IFMT.pct3(fu.overall_pct)}</b> of people reached became engaged fans – about 1 in ${fu.overall_pct?Math.round(100/fu.overall_pct).toLocaleString():"–"}.</div>`;
+}
+function renderIntlMarkets(f){
+  const lg=funnel({...f,mkt:0}),mk=Object.fromEntries(rows("SELECT * FROM dim_market").map(m=>[m.market_id,m]));
+  const data=rows(intlFunnelSql({...f,mkt:0},["market_id"])).map(r=>{const m=mk[r.market_id],i1=r.see_to_know_pct/lg.see_to_know_pct,i2=r.know_to_engage_pct/lg.know_to_engage_pct;
+    return {...r,country:m.country,pres:m.league_presence,po:PRES_ORDER[m.league_presence],weak:i1<=i2?"s2k":"k2e",idx:Math.min(i1,i2)}});
+  const K={country:r=>r.country,pres:r=>r.po,reach:r=>r.reach,registered:r=>r.registered,engaged:r=>r.engaged,s2k:r=>r.see_to_know_pct,k2e:r=>r.know_to_engage_pct,overall:r=>r.overall_pct,drop:r=>r.idx};
+  const kf=K[iSort.k];data.sort((a,b)=>{const x=kf(a),y=kf(b);return (x<y?-1:x>y?1:0)*iSort.dir});
+  const H=[["country","Market"],["pres","Presence"],["reach","Reach",1],["registered","Registered",1],["engaged","Engaged",1],["s2k","See→Know",1],["k2e","Know→Engage",1],["overall","Overall",1],["drop","Biggest drop-off"]];
+  const pb=p=>`<span class="badge ${p==="Established"?"b-cert":p==="Growth"?"b-info":"b-warn"}">${p}</span>`;
+  const vs=r=>{const g=Math.round(100*(r.idx-1));return `${r.weak==="s2k"?"See→Know":"Know→Engage"}<span class="sub">${g<0?"−"+Math.abs(g)+"% vs league":g>0?"+"+g+"% · both above league":"at league"}</span>`};
+  const wk=(r,s)=>r.weak===s?(r.idx<1?"weak":"weakok"):"";
+  $("#iMarkets").innerHTML=`<table class="isort"><thead><tr>${H.map(([k,l,n])=>`<th class="${n?"num":""}" aria-sort="${iSort.k===k?(iSort.dir>0?"ascending":"descending"):"none"}"><button type="button" class="sortbtn" data-isort="${k}">${l}${iSort.k===k?(iSort.dir>0?" ▲":" ▼"):""}</button></th>`).join("")}</tr></thead><tbody>${
+    data.map(r=>`<tr data-imkt="${r.market_id}" tabindex="0" class="${r.market_id===f.mkt?"sel":""}" aria-label="Filter to ${esc(r.country)}"><td><b>${esc(r.country.replace("United Kingdom","UK"))}</b></td><td>${pb(r.pres)}</td><td class="num">${cnt(r.reach)}</td><td class="num">${cnt(r.registered)}</td><td class="num">${cnt(r.engaged)}</td>
+      <td class="num ${wk(r,"s2k")}">${r.see_to_know_pct.toFixed(2)}%</td><td class="num ${wk(r,"k2e")}">${r.know_to_engage_pct.toFixed(1)}%</td><td class="num"><b>${r.overall_pct.toFixed(3)}%</b></td><td>${vs(r)}</td></tr>`).join("")}
+    <tr class="tot"><td><b>League benchmark</b></td><td></td><td class="num">${cnt(lg.reach)}</td><td class="num">${cnt(lg.registered)}</td><td class="num">${cnt(lg.engaged)}</td><td class="num">${IFMT.pct2(lg.see_to_know_pct)}</td><td class="num">${lg.know_to_engage_pct==null?"–":lg.know_to_engage_pct.toFixed(1)+"%"}</td><td class="num"><b>${IFMT.pct3(lg.overall_pct)}</b></td><td class="muted">${f.team?"this club, all markets":"all clubs, all markets"}</td></tr></tbody></table>`;
+}
+function renderIntlHeat(f){
+  const M=rows("SELECT market_id, country, iso2 FROM dim_market ORDER BY market_id"),T=rows("SELECT team_id, team FROM dim_team");
+  const cells=rows(intlFunnelSql({...f,mkt:0,team:0},["team_id","market_id"])),by={};
+  cells.forEach(c=>(by[c.team_id]=by[c.team_id]||{})[c.market_id]=c);
+  const st={reach:"see",registered:"know",overall:"engage"}[iHm],color=`var(--${st})`;
+  const val=c=>c?(iHm==="overall"?c.overall_pct:c[iHm]):null,fmt=v=>v==null?"–":iHm==="overall"?v.toFixed(3)+"%":cnt(v);
+  const tot=t=>{const cs=Object.values(by[t]||{}),s=k=>cs.reduce((a,c)=>a+c[k],0);return iHm==="overall"?100*s("engaged")/s("reach"):s(iHm)};
+  const key=t=>f.mkt?val((by[t]||{})[f.mkt]):tot(t);
+  let list=T.map(t=>({...t,k:key(t.team_id),tot:tot(t.team_id)})).sort((a,b)=>b.k-a.k);
+  if(!iHmAll){const sel=list.find(t=>t.team_id===f.team),top=list.slice(0,10);list=sel&&!top.includes(sel)?[...top,sel]:top}
+  const all=cells.map(val).sort((a,b)=>a-b),qt=[.2,.4,.6,.8].map(p=>all[Math.floor(p*(all.length-1))]),SH=[14,32,52,72,90];
+  const bin=v=>qt.filter(x=>v>x).length;
+  const mName=f.mkt?M.find(m=>m.market_id===f.mkt).country:"all markets";
+  $("#iHmSub").textContent=`clubs ranked by ${{reach:"reach",registered:"registered fans",overall:"overall conversion"}[iHm]} in ${mName} · click a cell to filter by club and market`;
+  $("#iHeat").innerHTML=`<table class="hm"><thead><tr><th>Club</th><th class="num">All markets</th>${M.map(m=>`<th class="num ${m.market_id===f.mkt?"on":""}" title="${esc(m.country)}">${esc(m.country.replace("United Kingdom","UK"))}</th>`).join("")}</tr></thead><tbody>${
+    list.map(t=>`<tr class="${t.team_id===f.team?"on":""}"><td class="club">${esc(t.team)}</td><td class="num">${fmt(t.tot)}</td>${M.map(m=>{const c=(by[t.team_id]||{})[m.market_id],v=val(c),b=bin(v),on=t.team_id===f.team&&m.market_id===f.mkt;
+      return `<td class="c num ${SH[b]>=60?"dark":""} ${on?"on":""} ${m.market_id===f.mkt?"col":""}" style="background:color-mix(in srgb, ${color} ${SH[b]}%, var(--surface))" data-iteam="${t.team_id}" data-imk="${m.market_id}" tabindex="0" aria-label="${esc(t.team)} in ${esc(m.country)}: ${fmt(v)}">${fmt(v)}</td>`}).join("")}</tr>`).join("")}</tbody></table>`;
+  const edges=[all[0],...qt,all[all.length-1]];
+  $("#iHmLegend").innerHTML=`<span>Quintiles of all 256 club × market cells:</span>`+SH.map((s,i)=>`<span><i style="background:color-mix(in srgb, ${color} ${s}%, var(--surface))"></i>${fmt(edges[i])} – ${fmt(edges[i+1])}</span>`).join("");
+}
+function renderIntlRoadmap(){
+  const base=one(`SELECT ROUND(100.0 * (SELECT SUM(x.engaged_fans) FROM fact_market_engagement x JOIN dim_market m ON m.market_id = x.market_id WHERE m.league_presence = 'Growth' AND x.week_start BETWEEN '${INTL_PERIODS.std.start}' AND '${INTL_PERIODS.std.end}')
+    / (SELECT SUM(x.registered_fans) FROM fact_market_consideration x JOIN dim_market m ON m.market_id = x.market_id WHERE m.league_presence = 'Growth' AND x.week_start BETWEEN '${INTL_PERIODS.std.start}' AND '${INTL_PERIODS.std.end}'), 1)`);
+  const live={growthK2E:`Baseline today: <b>${base.toFixed(1)}%</b> Know→Engage in Growth markets (2026 season to date) → target <b>${(base+2).toFixed(1)}%</b>`};
+  const chips=s=>s.map(x=>`<span class="schip s-${x}">${INTL_STAGES[x].name}</span>`).join(" ");
+  $("#iCal").innerHTML=`<div class="ical" aria-label="2027 football calendar">${INTL_CAL.map(([m,k])=>`<div class="m ${k}" title="${esc(INTL_CAL_KEY[k].join(": "))}">${m}</div>`).join("")}</div>
+    <div class="igantt">${INTL_ROADMAP.map(p=>`<div class="grow12"><div class="gb ${p.stages.length===1?"s-"+p.stages[0]:""}" style="grid-column:${p.from}/${p.to+1}" title="${esc(p.t)} · ${esc(p.when)}">${p.n} · ${esc(p.t)}</div></div>`).join("")}</div>
+    <div class="ikey">${Object.entries(INTL_CAL_KEY).map(([k,[a,b]])=>`<span><i class="m ${k}"></i><b>${a}</b> ${b}</span>`).join("")}</div>`;
+  $("#iPhases").innerHTML=INTL_ROADMAP.map(p=>`<div class="iphase"><span class="pn">${p.n}</span><div class="when">${esc(p.when)}</div><h3>${esc(p.t)}</h3><div>${chips(p.stages)}</div><p>${esc(p.d)}</p>
+    <dl><dt>Owner</dt><dd>${esc(p.owner)}</dd><dt>Depends on</dt><dd>${esc(p.deps)}</dd><dt>Key risk</dt><dd class="down">⚠ ${esc(p.risk)}</dd><dt>Success metric</dt><dd><b>${esc(p.metric)}</b>${p.live?`<span class="sub">${live[p.live]}</span>`:""}</dd></dl></div>`).join("");
+  $("#iDeps").innerHTML=table(["Initiative","Depends on","Owner","Risk","Mitigation"],INTL_DEPS.map(d=>[esc(d[0]),esc(d[1]),esc(d[2]),`<span class="badge ${d[3]==="High"?"b-bad":d[3]==="Medium"?"b-warn":"b-cert"}">${d[3]}</span>`,esc(d[4])]));
+  $("#iDeps").querySelectorAll("td").forEach(td=>td.style.whiteSpace="normal");
+}
+function intlInfo(id){
+  const k=INTL_KPIS.find(x=>x.id===id),f=intlFilters(),sql=k.sql(f),S=INTL_STAGES[k.stage];
+  modal(`<h3>${esc(k.label)} <span class="badge b-warn">Draft · certified in phase 3</span></h3><p>${esc(k.def)}</p>
+    <dl class="kv"><dt>Stage</dt><dd>${S.name} · ${S.sub}</dd><dt>Business owner</dt><dd>${esc(k.owner[0])}</dd><dt>Data steward</dt><dd>${esc(k.owner[1])}</dd><dt>Refresh</dt><dd>${esc(k.owner[2])}</dd><dt>Source</dt><dd><code>${esc(k.src)}</code></dd>${k.inverse?"<dt>Direction</dt><dd>Lower is better</dd>":""}</dl>
+    <pre>${esc(sql)}</pre><button class="primary" id="toSqlI">Open in SQL Lab</button>`);
+  $("#toSqlI").onclick=()=>{$("#modal").hidden=true;openInSql(sql)};
+}
+["#iMarket","#iClub","#iPeriod"].forEach(s=>$(s).addEventListener("change",renderIntl));
+document.querySelectorAll("[data-iorder]").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("[data-iorder]").forEach(x=>x.classList.toggle("on",x===b));$("#iStages").classList.toggle("see-first",b.dataset.iorder==="see")});
+document.querySelectorAll("[data-ihm]").forEach(b=>b.onclick=()=>{iHm=b.dataset.ihm;document.querySelectorAll("[data-ihm]").forEach(x=>x.classList.toggle("on",x===b));if(db)renderIntlHeat(intlFilters())});
+$("#iHmAll").onclick=()=>{iHmAll=!iHmAll;$("#iHmAll").textContent=iHmAll?"Show top 10":"Show all 32 clubs";if(db)renderIntlHeat(intlFilters())};
+$("#iStages").addEventListener("click",e=>{const b=e.target.closest("[data-ikpi]");if(b)intlInfo(b.dataset.ikpi)});
+const setIntl=(mkt,team)=>{if(mkt!=null)$("#iMarket").value=mkt;if(team!=null)$("#iClub").value=team;renderIntl()};
+function intlPick(e){
+  const s=e.target.closest("[data-isort]");if(s){const k=s.dataset.isort;iSort=iSort.k===k?{k,dir:-iSort.dir}:{k,dir:["country","pres"].includes(k)?1:-1};renderIntlMarkets(intlFilters());return}
+  const r=e.target.closest("[data-imkt]");if(r){const m=r.dataset.imkt;setIntl($("#iMarket").value===m?"":m,null);return}
+  const c=e.target.closest("[data-iteam]");if(c){const on=$("#iMarket").value===c.dataset.imk&&$("#iClub").value===c.dataset.iteam;setIntl(on?"":c.dataset.imk,on?"":c.dataset.iteam)}
+}
+["#iMarkets","#iHeat"].forEach(s=>{$(s).addEventListener("click",intlPick);$(s).addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("[data-imkt],[data-iteam]")){e.preventDefault();intlPick(e)}})});
+
+const RENDER={intl:renderIntl,fan:renderFan,plan:renderPlan,overview:renderOverview,kpi:renderKpi,odds:renderOdds,wh:renderWh,brief:renderBrief,ask:renderAsk,churn:renderChurn,erd:()=>renderErd("star"),sql:renderSql,roadmap:renderRoadmap,gov:renderGov,adopt:renderAdopt};
 
 /* ---------- boot ---------- */
 initSqlJs({locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`}).then(SQL=>{
