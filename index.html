@@ -36,6 +36,7 @@
       <button data-tab="intl">International Fan Journey</button>
       <button data-tab="roadmap">Roadmap</button>
       <button data-tab="gov">Governance &amp; Quality</button>
+      <button data-tab="recon">Survey ↔ Activation reconciliation</button>
       <button data-tab="adopt">Adoption</button>
       <button data-tab="plan">My first 90 days ★</button>
     </nav>
@@ -141,7 +142,7 @@
     <!-- ERD -->
     <section id="tab-erd" class="tab">
       <header class="pagehead"><div><h1>Data Model &amp; ERD</h1><p>Gold-layer star schema that every certified league and club dashboard reads from. Hover a table to trace its joins; tap it for owner, row count and a sample query.</p></div>
-        <div class="seg" role="group" aria-label="View"><button data-erd="star" class="on">Star schema</button><button data-erd="arch">Platform architecture</button><button data-erd="lineage">KPI lineage</button><button data-erd="intl">International mart</button></div>
+        <div class="seg" role="group" aria-label="View"><button data-erd="star" class="on">Star schema</button><button data-erd="arch">Platform architecture</button><button data-erd="lineage">KPI lineage</button><button data-erd="intl">International mart</button><button data-erd="recon">Fan activation</button></div>
       </header>
       <div class="panel"><div id="erd" class="svgwrap erd"></div></div>
       <div class="panel" id="erdInfo"><p class="muted">Select a table to see its details.</p></div>
@@ -235,6 +236,23 @@
         </ul></div>
     </section>
 
+    <!-- SURVEY ↔ ACTIVATION RECONCILIATION -->
+    <section id="tab-recon" class="tab">
+      <header class="pagehead"><div><h1>Survey ↔ Activation reconciliation</h1><p>Activation is the first golden truth: every fan activation – surveys, game events, ticket events. Some survey responses never show up in it. Fan PII is governed, so every check here runs on hashed emails, event type and name, and timestamps – never on an email.</p></div>
+        <button id="rcRun" class="primary" type="button">Re-run checks</button></header>
+      <div class="cards4" id="rcStats"></div>
+      <div class="panel rcsum" id="rcSummary"><h2>What I'd tell stakeholders <small>one sentence, generated from the numbers below</small></h2><p id="rcSentence" class="rcsent"></p><div id="rcOngoing" class="rcog"></div></div>
+      <div class="grid-21">
+        <div class="panel"><h2>Validation checklist <small>each check is live SQL · tap View SQL</small></h2><div id="rcChecks" class="tablewrap" style="max-height:none"></div></div>
+        <div class="panel"><h2>Why survey rows are missing <small>share of the gap by cause</small></h2><div class="chartbox"><canvas id="cRecon"></canvas></div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>Action plan by cause <small>fix and owner</small></h2><div id="rcPlan" class="tablewrap" style="max-height:none"></div></div>
+        <div class="panel"><h2>Where the gap sits <small>by survey</small></h2><div id="rcBySurvey" class="tablewrap" style="max-height:none"></div></div>
+      </div>
+      <p class="muted fine">Hashes only: fan PII stays governed in the PII vault. The hash-normalization check uses a hash → hash crosswalk the vault computes, so no email ever leaves it. Synthetic SHA-256-style hashes – no email exists anywhere in this demo.</p>
+    </section>
+
     <!-- ADOPT -->
     <section id="tab-adopt" class="tab">
       <header class="pagehead"><div><h1>Adoption &amp; Usage</h1><p>Are people using the platform, and is it changing decisions? Usage drives what we build, improve or retire.</p></div></header>
@@ -277,10 +295,13 @@
         <div class="panel"><h2>Stage-to-stage conversion <small id="iFunSub"></small></h2><div id="iFunnel"></div></div>
         <div class="panel"><h2>Conversion by market <small>click a market to filter · weaker step highlighted: red = below the league benchmark</small></h2><div id="iMarkets" class="tablewrap" style="max-height:none"></div></div>
       </div>
+      <div class="panel"><h2>See-stage channel mix <small>digital, broadcast and traditional media in the selected market, club and period</small></h2>
+        <div id="iMix" class="tablewrap" style="max-height:none"></div>
+        <p class="muted fine0 mt8">Billboard and transit impressions are modeled audience estimates (traffic counts × visibility), so they are reported here but kept out of See reach – the funnel never double counts. Broadcast and streaming reach comes through rights partners and carries no media spend.</p></div>
       <div class="panel">
         <div class="ihead"><h2>Club × market heatmap <small id="iHmSub">click a cell to filter by club and market</small></h2>
           <div class="ictl"><div class="seg" role="group" aria-label="Heatmap metric"><button data-ihm="reach" class="on" type="button">Reach</button><button data-ihm="registered" type="button">Registered</button><button data-ihm="overall" type="button">Conversion</button></div><button class="ghost" id="iHmAll" type="button">Show all 32 clubs</button></div></div>
-        <div id="iHeat" class="tablewrap" style="max-height:none"></div><div id="iHmLegend" class="hmlegend"></div>
+        <div id="iHome" class="hcstrip"></div><div id="iHeat" class="tablewrap" style="max-height:none"></div><div id="iHmLegend" class="hmlegend"></div>
       </div>
       <div class="panel" id="iRoad"><h2>Roadmap to implement <small>phased data &amp; BI rollout · timed to the 2027 football calendar</small></h2>
         <div id="iCal"></div><div class="iphases" id="iPhases"></div>
@@ -292,6 +313,7 @@
     <section id="tab-plan" class="tab">
       <header class="pagehead"><div><h1>My first 90 days</h1><p>How I'd run this role at EXL: listen first, certify what matters, then scale self-service. Each item links to the part of this demo that shows it.</p></div></header>
       <div class="rm3" id="planCols"></div>
+      <div class="panel mt" id="planTeam"><h2>How I'd work with the team <small>the league owns the program · we support its roadmap</small></h2><div id="planTeamBody"></div></div>
       <div class="panel mt"><h2>How I'll know it's working <small>targets by day 90</small></h2><div class="cards4 flat" id="planKpis"></div></div>
       <div class="panel"><h2>Operating rhythm with partners</h2><div id="planPartners" class="tablewrap" style="max-height:none"></div></div>
     </section>

@@ -205,6 +205,8 @@ function buildWarehouse(SQL){
   sc.free();
   db.run("COMMIT");
   buildInternational(db,iso,day);
+  buildIntlExtras(db,iso,day);
+  buildReconciliation(db);
   return db;
 }
 
@@ -298,5 +300,127 @@ function buildInternational(db,iso,day){
   db.run(`CREATE INDEX ix_maw ON fact_market_awareness(week_start, market_id, team_id);
     CREATE INDEX ix_mco ON fact_market_consideration(week_start, market_id, team_id);
     CREATE INDEX ix_men ON fact_market_engagement(week_start, market_id, team_id);`);
+  db.run("COMMIT");
+}
+
+// ---------- International Fan Journey extras: out-of-home viewing, traditional media, home clubs ----------
+// Runs after buildInternational with its OWN seeded generator, so every existing table and number stays the same.
+// It only reads existing tables (fact_market_awareness, fact_market_consideration, bridge_game_market, dim_game).
+function buildIntlExtras(db,iso,day){
+  let s=20261201;
+  const r=()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+  const rb=(a,b)=>a+r()*(b-a),R=Math.round,r2=x=>Math.round(x*100)/100;
+  db.run(`
+  CREATE TABLE fact_market_ooh_viewing(market_id INTEGER REFERENCES dim_market(market_id), week_start TEXT, team_id INTEGER REFERENCES dim_team(team_id), partner_venues INTEGER, ooh_viewers INTEGER, watch_party_checkins INTEGER);
+  CREATE TABLE fact_market_traditional_media(market_id INTEGER REFERENCES dim_market(market_id), week_start TEXT, team_id INTEGER REFERENCES dim_team(team_id), channel TEXT, placements INTEGER, est_impressions INTEGER, ad_spend REAL);
+  CREATE TABLE dim_market_home_club(market_id INTEGER PRIMARY KEY REFERENCES dim_market(market_id), team_id INTEGER REFERENCES dim_team(team_id), hub_city TEXT, adopted_since INTEGER, fan_share_pct REAL);
+  `);
+  db.run("BEGIN");
+  const mk=Object.fromEntries(db.exec("SELECT market_id, iso2, league_presence FROM dim_market")[0].values.map(([id,iso2,pres])=>[id,{iso2,pres}]));
+  // Know: watching at a bar, pub, watch party or partner venue. Pub culture lifts out-of-home viewing in the UK, Ireland and Germany.
+  const OOHK={GB:1.45,IE:1.6,DE:1.25,MX:1.15,CA:.9,BR:.85,AU:1.05,ES:.95};
+  const so=db.prepare("INSERT INTO fact_market_ooh_viewing VALUES (?,?,?,?,?,?)");
+  db.exec("SELECT market_id, week_start, team_id, SUM(reach) FROM fact_market_awareness WHERE channel IN ('Broadcast', 'Streaming') GROUP BY market_id, week_start, team_id ORDER BY market_id, week_start, team_id")[0].values
+    .forEach(([m,ws,t,v])=>{const ooh=R(v*rb(.06,.1)*OOHK[mk[m].iso2]);so.run([m,ws,t,R(ooh/rb(55,90)),ooh,R(ooh*rb(.04,.08))])});
+  so.free();
+  // See: billboards and transit/print, heaviest in the weeks around an international game, split across clubs by their reach that week
+  const games=db.exec("SELECT b.market_id, g.season, g.week FROM bridge_game_market b JOIN dim_game g ON g.game_id = b.game_id")[0].values;
+  const WK1={2025:Date.UTC(2025,8,4),2026:Date.UTC(2026,8,10)};
+  const gameWeek=games.map(([m,y,w])=>({m,y,ws:iso(new Date(WK1[y]+(w-1)*7*day))}));
+  const BASE={Established:62000,Growth:26000,Emerging:12000};
+  const reach={};db.exec("SELECT market_id, week_start, team_id, SUM(reach) FROM fact_market_awareness GROUP BY market_id, week_start, team_id")[0].values
+    .forEach(([m,ws,t,v])=>{const k=m+"|"+ws;(reach[k]=reach[k]||[]).push([t,v])});
+  const st=db.prepare("INSERT INTO fact_market_traditional_media VALUES (?,?,?,?,?,?,?)");
+  Object.entries(reach).sort(([a],[b])=>a<b?-1:a>b?1:0).forEach(([k,list])=>{
+    const [m,ws]=k.split("|"),y=+ws.slice(0,4),g=gameWeek.find(x=>x.m===+m&&x.y===y);
+    const dw=g?(Date.parse(g.ws)-Date.parse(ws))/(7*day):99,boost=dw>=0&&dw<=3?3.2-dw*.5:1;
+    const spend=BASE[mk[m].pres]*boost*(y===2026?1.1:1)*rb(.85,1.15),tot=list.reduce((a,x)=>a+x[1],0);
+    list.sort((a,b)=>a[0]-b[0]).forEach(([t,v])=>{const sh=v/tot;if(sh<.04)return;
+      [["Billboards",.65,[4,7],[2500,4200]],["Transit & print",.35,[6,9],[1200,2400]]].forEach(([ch,cs,cpm,unit])=>{
+        const sp=r2(spend*sh*cs*rb(.9,1.1));st.run([+m,ws,t,ch,Math.max(1,R(sp/rb(...unit))),R(sp/rb(...cpm)*1000),sp])})});
+  });
+  st.free();
+  // Home club: the club fans in each market have adopted as "their" team – the club with the most registered fans there
+  const HUB={GB:["London",2007],IE:["Dublin",2019],DE:["Munich",2022],ES:["Madrid",2023],MX:["Mexico City",2016],CA:["Toronto",2008],BR:["São Paulo",2021],AU:["Melbourne",2020]};
+  const sh=db.prepare("INSERT INTO dim_market_home_club VALUES (?,?,?,?,?)");
+  db.exec(`SELECT market_id, team_id FROM (SELECT market_id, team_id, RANK() OVER (PARTITION BY market_id ORDER BY SUM(registered_fans) DESC, team_id) AS rk
+    FROM fact_market_consideration GROUP BY market_id, team_id) WHERE rk = 1 ORDER BY market_id`)[0].values
+    .forEach(([m,t])=>{const [city,since]=HUB[mk[m].iso2];sh.run([m,t,city,since+R(rb(0,2)),Math.round(rb(24,41)*10)/10])});
+  sh.free();
+  db.run(`CREATE INDEX ix_mooh ON fact_market_ooh_viewing(week_start, market_id, team_id);
+    CREATE INDEX ix_mtrad ON fact_market_traditional_media(week_start, market_id, team_id);`);
+  db.run("COMMIT");
+}
+
+// ---------- Survey ↔ activation reconciliation ----------
+// Runs last with its OWN seeded generator and reads nothing, so no existing table or number moves.
+// fact_fan_activation is "the first golden truth": every fan activation (surveys, game events, ticket events).
+// fact_fan_survey is the survey platform's export. Fan PII is governed, so both carry only a hashed email.
+// The survey export misses a known mix of rows in activation: hash normalization, event-name mapping,
+// a UTC partition cutoff, null and duplicate hashes, plus a small unexplained residual.
+function buildReconciliation(db){
+  let s=20261115;
+  const r=()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+  const pick=a=>a[Math.floor(r()*a.length)],wpick=(items,w)=>{let x=r()*w.reduce((a,b)=>a+b,0);for(let i=0;i<items.length;i++){x-=w[i];if(x<=0)return items[i]}return items[items.length-1]};
+  const hex=()=>{let h="";for(let i=0;i<8;i++)h+=(Math.floor(r()*4294967296)>>>0).toString(16).padStart(8,"0");return h}; // synthetic SHA-256-style digest – no email exists anywhere
+  const pad=n=>String(n).padStart(2,"0"),H=36e5,MIN=6e4;
+  const utc=t=>{const d=new Date(t);return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`};
+  const local=(t,off)=>utc(t+off*H)+(off<0?"-":"+")+pad(Math.abs(off))+":00"; // ISO local time with offset, as the survey vendor sends it
+  db.run(`
+  CREATE TABLE fact_fan_activation(activation_id INTEGER PRIMARY KEY, hashed_email TEXT, event_type TEXT, event_name TEXT, event_ts TEXT, source TEXT);
+  CREATE TABLE fact_fan_survey(response_id INTEGER PRIMARY KEY, hashed_email TEXT, survey_id TEXT, event_name TEXT, submitted_ts TEXT, market TEXT);
+  CREATE TABLE gov_hash_crosswalk(source_hash TEXT PRIMARY KEY, normalized_hash TEXT, method TEXT);
+  `);
+  db.run("BEGIN");
+  // market: [iso2, weight, UTC offset in November]
+  const MK=[["GB",22,0],["MX",18,-6],["CA",15,-5],["DE",14,1],["BR",10,-3],["AU",9,11],["IE",6,0],["ES",6,1]];
+  const fans=[],byMk={};
+  for(let i=0;i<3400;i++){const m=wpick(MK,MK.map(x=>x[1])),f={mk:m[0],off:m[2],hash:hex(),raw:null};
+    if(r()<.25)f.raw=hex(); // typed with a capital letter or a trailing space: hashing the raw string gives a different digest
+    fans.push(f);(byMk[f.mk]=byMk[f.mk]||[]).push(f)}
+  const ALL=MK.map(m=>m[0]);
+  // [survey_id, event_name, local start, local end (inclusive), markets, responses, flags]
+  // vendorB = in-venue QR survey whose vendor hashes the email as typed; vendorCode = activation still logs the vendor's raw event code
+  const SV=[["SV-NPS-26Q3","Fan NPS · 2026 Q3","2026-07-01","2026-09-30",ALL,900,{}],
+    ["SV-NPS-26Q4","Fan NPS · 2026 Q4","2026-10-01","2026-11-15",ALL,1150,{}],
+    ["SV-FAV-26","Favorite Club Survey 2026","2026-09-01","2026-11-15",ALL,700,{}],
+    ["SV-WELCOME","New Fan Welcome Survey","2026-09-01","2026-11-15",ALL,600,{}],
+    ["SV-LON-26","London Game Experience 2026","2026-10-18","2026-10-25",["GB","IE","DE","ES"],320,{vendorB:1}],
+    ["SV-MUC-26","Munich Game Experience 2026","2026-11-08","2026-11-15",["DE","ES","GB"],230,{vendorB:1}],
+    ["SV-WATCH-26","Watch Party Pulse 2026","2026-10-15","2026-11-15",ALL,85,{vendorCode:"SRV_WATCHPARTY_PULSE_26"}]];
+  const CUTOFF=Date.UTC(2026,10,16); // activation is loaded through the 2026-11-15 UTC partition (nightly D-1 load)
+  const svRows=[],acRows=[],xwalk=new Map();
+  const respond=(sv,f,t)=>{ // t = submission time (UTC ms)
+    const [id,name,,,,,fl]=sv;let hash=f.hash;
+    if(fl.vendorB&&f.raw){hash=f.raw;xwalk.set(f.raw,f.hash)}
+    const q=r();let act=true;
+    if(q<.006){hash=r()<.5?null:"";act=false}      // anonymous / dropped email: no hashed ID at all
+    else if(q<.010)act=false;                       // webhook to activation failed: genuinely missing
+    if(t>=CUTOFF)act=false;                         // lands in the 2026-11-16 UTC partition, not loaded yet
+    svRows.push([hash,id,name,t,f]);
+    if(hash!=null&&hash!==""&&r()<.008)svRows.push([hash,id,name,t+(1+Math.floor(r()*6))*MIN,f]); // double submit; activation dedupes
+    if(act)acRows.push([f.hash,"Survey",fl.vendorCode||name,t,"Survey platform"]);
+  };
+  const HR=[1,1,1,1,1,1,2,3,4,5,6,6,7,7,6,6,7,8,10,11,11,9,6,3]; // local hour weights, evening-heavy
+  SV.forEach(sv=>{const [,, a,b,mks,n]=sv,d0=Date.parse(a+"T00:00:00Z"),days=Math.round((Date.parse(b+"T00:00:00Z")-d0)/864e5)+1;
+    for(let k=0;k<n;k++){const f=pick(byMk[wpick(mks,mks.map(m=>MK.find(x=>x[0]===m)[1]))]),h=wpick(HR.map((_,i)=>i),HR);
+      const lt=d0+Math.floor(r()*days)*864e5+h*H+Math.floor(r()*3600)*1000;respond(sv,f,lt-f.off*H)}});
+  // Week 10 game-day pulse: NPS push on Sunday 2026-11-15, 5–11 PM local. Evening responses in the Americas cross UTC midnight.
+  for(let k=0;k<280;k++){const f=pick(fans),lt=Date.UTC(2026,10,15,17)+Math.floor(r()*6*3600)*1000;respond(SV[1],f,lt-f.off*H)}
+  // other activations: game events and ticket events
+  const OTHER=[["Game event","Watch party check-in","Venue partner",30],["Game event","Game-day app check-in","Fan app",34],["Game event","International game attendance","Ticketing",8],
+    ["Ticket event","Ticket purchase","Ticketing",18],["Ticket event","Ticket transfer","Ticketing",6],["Game event","League+ International stream start","Streaming",24]];
+  const A0=Date.UTC(2026,6,1);
+  fans.forEach(f=>{const n=Math.floor(r()*5);for(let k=0;k<n;k++){const o=wpick(OTHER,OTHER.map(x=>x[3])),t=A0+Math.floor(r()*(CUTOFF-A0));
+    acRows.push([f.hash,o[0],o[1],t,o[2]]);if(r()<.015)acRows.push([f.hash,o[0],o[1],t,o[2]])}}); // retried load double-writes the row
+  svRows.sort((a,b)=>a[3]-b[3]);acRows.sort((a,b)=>a[3]-b[3]);
+  const ss=db.prepare("INSERT INTO fact_fan_survey VALUES (?,?,?,?,?,?)");
+  svRows.forEach(([hash,id,name,t,f],i)=>ss.run([i+1,hash,id,name,local(t,f.off),f.mk]));ss.free();
+  const sa=db.prepare("INSERT INTO fact_fan_activation VALUES (?,?,?,?,?,?)");
+  acRows.forEach(([hash,ty,name,t,src],i)=>sa.run([i+1,hash,ty,name,utc(t),src]));sa.free();
+  const sx=db.prepare("INSERT INTO gov_hash_crosswalk VALUES (?,?,?)");
+  [...xwalk].sort(([a],[b])=>a<b?-1:1).forEach(([raw,norm])=>sx.run([raw,norm,"SHA-256(lower(trim(email))) re-derived inside the PII vault"]));sx.free();
+  db.run(`CREATE INDEX ix_act ON fact_fan_activation(hashed_email, event_name);
+    CREATE INDEX ix_srv ON fact_fan_survey(hashed_email, event_name);`);
   db.run("COMMIT");
 }

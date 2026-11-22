@@ -274,3 +274,44 @@ pre.code{background:#0f1b2a;color:#d7e3f1;padding:12px;border-radius:8px;overflo
 @media (max-width:1600px){.grid-12{grid-template-columns:1fr}}
 @media (max-width:900px){.iphases{grid-template-columns:1fr}}
 @media (max-width:600px){#tab-intl .seg button{padding:8px 10px;font-size:13px}.ikpis{grid-template-columns:repeat(2,minmax(0,1fr))}.ical .m{font-size:9.5px}.gb{font-size:10.5px;padding:3px 5px}}
+/* --- Survey ↔ activation reconciliation --- */
+.card.bad b{color:var(--bad)}
+.rcsum{border-left:4px solid var(--accent)}
+.rcsent{font-size:15.5px;line-height:1.55;margin:0 0 12px;max-width:980px}
+.rcog{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+.rcog b{color:var(--fg)}.rcog .ghost{padding:3px 10px;font-size:12.5px}
+.grid-21{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:16px;margin-bottom:16px;align-items:start}.grid-21>.panel{margin-bottom:0}
+#rcChecks td .ghost{padding:3px 10px;font-size:12.5px;white-space:nowrap}
+#rcChecks td .sub,#rcPlan td .sub,#rcBySurvey td .sub{white-space:normal}
+.wrap{white-space:normal}
+@media (max-width:1200px){.grid-21{grid-template-columns:1fr}}
+/* --- International Fan Journey: home clubs --- */
+.hc{color:var(--engage);font-size:11px;margin-right:3px}
+.hm td.c.dark .hc{color:#fff}
+.hcstrip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;font-size:12.5px}
+.hclab{color:var(--muted);width:100%}
+.hchip{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:3px 10px;cursor:pointer;font-size:12.5px}
+.hchip:hover{border-color:var(--accent)}.hchip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+/* --- how I'd work with the team --- */
+.team{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,260px);gap:16px;align-items:start}
+.tmain{display:grid;gap:0;min-width:0}
+.tlane{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:center}
+.tl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:2px;min-width:0}
+.tbox b{font-size:13.5px}.tbox span{font-size:12.5px;color:var(--muted)}.tbox small{font-size:12px}
+.tbox.me{border:2px solid var(--accent);background:var(--accent-soft)}
+.tbox.dash{border:1.5px dashed var(--warn);background:var(--warn-soft)}
+.tbox a{color:var(--accent);cursor:pointer;font-size:12px;margin-top:4px}
+.tpods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0}
+.tarrow{display:flex;gap:0 18px;justify-content:center;font-size:11.5px;color:var(--muted);padding:5px 0 5px 108px;flex-wrap:wrap}
+.tstand{border:1.5px dashed var(--line);border-radius:12px;padding:8px 10px 10px;margin:0 -10px}
+.tsl{font-size:11.5px;font-weight:700;color:var(--accent);margin:0 0 8px 108px}
+.tdep{display:grid;gap:6px;min-width:0}
+.tdl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warn)}
+.tdarrow{font-size:11.5px;color:var(--muted)}
+.h3s{font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tscale{background:var(--good-soft);border-radius:10px;padding:12px 14px}.tscale p{margin:0;font-size:13.5px}
+#planTeamBody table.mini td:first-child{width:130px}
+#planTeamBody a{color:var(--accent);cursor:pointer;font-size:12px;white-space:nowrap}
+@media (max-width:1100px){.team{grid-template-columns:1fr}}
+@media (max-width:600px){.tlane{grid-template-columns:1fr;gap:4px}.tarrow{padding-left:0}.tsl{margin-left:0}.tpods{grid-template-columns:1fr}.tstand{margin:0}}
