@@ -204,5 +204,95 @@ function buildWarehouse(SQL){
   }
   sc.free();
   db.run("COMMIT");
+  buildInternational(db,iso,day);
   return db;
+}
+
+// ---------- International Fan Journey (See / Know / Engage) ----------
+// Runs after every table above is built and uses its OWN seeded generator, so the original sequence
+// (and every existing table and on-screen number) is untouched. It only reads dim_team and dim_game.
+function buildInternational(db,iso,day){
+  let s=20270207;
+  const r=()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+  const rb=(a,b)=>a+r()*(b-a),R=Math.round,r1=x=>Math.round(x*10)/10,r2=x=>Math.round(x*100)/100;
+  db.run(`
+  CREATE TABLE dim_market(market_id INTEGER PRIMARY KEY, country TEXT, region TEXT, iso2 TEXT, timezone TEXT, population_m REAL, league_presence TEXT);
+  CREATE TABLE bridge_game_market(game_id INTEGER PRIMARY KEY REFERENCES dim_game(game_id), market_id INTEGER REFERENCES dim_market(market_id), venue TEXT, city TEXT, venue_capacity INTEGER);
+  CREATE TABLE fact_market_awareness(market_id INTEGER REFERENCES dim_market(market_id), week_start TEXT, team_id INTEGER REFERENCES dim_team(team_id), channel TEXT, reach INTEGER, impressions INTEGER, ad_spend REAL, video_views INTEGER, social_followers_gained INTEGER);
+  CREATE TABLE fact_market_consideration(market_id INTEGER REFERENCES dim_market(market_id), week_start TEXT, team_id INTEGER REFERENCES dim_team(team_id), app_installs INTEGER, registered_fans INTEGER, email_opt_ins INTEGER, content_engagements INTEGER, streaming_trials INTEGER);
+  CREATE TABLE fact_market_engagement(market_id INTEGER REFERENCES dim_market(market_id), week_start TEXT, team_id INTEGER REFERENCES dim_team(team_id), intl_game_tickets INTEGER, intl_game_attendance INTEGER, merch_orders INTEGER, merch_revenue REAL, paid_subscriptions INTEGER, repeat_engaged_fans INTEGER, engaged_fans INTEGER);
+  CREATE TABLE fact_brand_survey(market_id INTEGER REFERENCES dim_market(market_id), quarter TEXT, team_id INTEGER REFERENCES dim_team(team_id), sample_n INTEGER, aided_awareness_pct REAL, unaided_awareness_pct REAL, favorability_pct REAL);
+  `);
+  db.run("BEGIN");
+  // [id, country, region, iso2, timezone, population (M), presence, see→know factor, know→engage factor, paid CPM ($), merch AOV ($), weekly reach as share of population]
+  const MK=[[1,"United Kingdom","Europe","GB","Europe/London",68.3,"Established",1.05,1.05,12,78],[2,"Germany","Europe","DE","Europe/Berlin",84.5,"Established",1.1,.78,11,74],
+    [3,"Mexico","Latin America","MX","America/Mexico_City",129.7,"Established",.95,1,4.5,52],[4,"Canada","North America","CA","America/Toronto",40.1,"Established",1,1.1,10.5,70],
+    [5,"Brazil","Latin America","BR","America/Sao_Paulo",216.4,"Growth",.7,1,3.4,46],[6,"Australia","Asia-Pacific","AU","Australia/Sydney",26.6,"Growth",1,.9,9.5,72],
+    [7,"Ireland","Europe","IE","Europe/Dublin",5.3,"Emerging",1.15,.8,10,75],[8,"Spain","Europe","ES","Europe/Madrid",48.4,"Emerging",.9,.95,7,60]]
+    .map(([id,country,region,iso2,tz,pop,pres,k1,k2,cpm,aov])=>({id,country,region,iso2,tz,pop,pres,k1,k2,cpm,aov}));
+  const PEN={Established:.075,Growth:.045,Emerging:.022},GROW={Established:1.07,Growth:1.16,Emerging:1.28};
+  const PF1={Established:1,Growth:.75,Emerging:.55},PF2={Established:1,Growth:.72,Emerging:.5};
+  const AID0={Established:[58,64],Growth:[36,42],Emerging:[16,21]},AIDSTEP={Established:.5,Growth:.9,Emerging:1.2};
+  MK.forEach(m=>db.run("INSERT INTO dim_market VALUES (?,?,?,?,?,?,?)",[m.id,m.country,m.region,m.iso2,m.tz,m.pop,m.pres]));
+
+  const teams=db.exec("SELECT team_id, market_size FROM dim_team ORDER BY team_id")[0].values
+    .map(([id,ms])=>({id,appeal:(ms==="Large"?1.25:ms==="Medium"?1:.85)*rb(.55,1.6)}));
+  // clubs with international marketing rights in each market (more in established markets)
+  const NR={Established:4,Growth:3,Emerging:2};
+  MK.forEach(m=>{m.rights=new Set();while(m.rights.size<NR[m.pres])m.rights.add(teams[Math.floor(r()*teams.length)].id)});
+
+  // international games: an existing Sunday Early game re-sited abroad (2025 London; 2026 London + Munich)
+  const games=[[2025,6,1,"Thameside Park","London",86000],[2026,6,1,"Thameside Park","London",86000],[2026,9,2,"Nordpark Arena","Munich",72000]].map(([season,week,mk,venue,city,cap])=>{
+    const g=db.exec(`SELECT game_id, home_team_id, away_team_id FROM dim_game WHERE season=${season} AND week=${week} AND game_window='Sunday Early' ORDER BY game_id LIMIT 1`)[0].values[0];
+    db.run("INSERT INTO bridge_game_market VALUES (?,?,?,?,?)",[g[0],mk,venue,city,cap]);
+    return {season,week,mk,cap,id:g[0],teams:[g[1],g[2]],fill:rb(.965,.995)}});
+
+  // 13 weeks per season: 3 pre-season weeks + weeks 1–10, week_start = the Thursday that opens the game week
+  const WK1={2025:Date.UTC(2025,8,4),2026:Date.UTC(2026,8,10)},weeks=[];
+  [2025,2026].forEach(y=>{for(let w=-2;w<=10;w++)weeks.push({y,w,ws:iso(new Date(WK1[y]+(w-1)*7*day))})});
+  // channel: [name, share of reach, frequency range, spend multiplier on paid CPM, video views per reached person]
+  const CH=[["Social",.38,[4,6],.4,[1.6,2.8]],["Broadcast",.22,[2,3],0,[1,1]],["Streaming",.14,[3,4],0,[2,3.5]],["Paid digital",.26,[5,7],1,[.3,.6]]];
+  const TW={6:.3,5:.15,4:.12,3:.12,2:.14,1:.17}; // ticket sales by weeks before an international game
+  const sa=db.prepare("INSERT INTO fact_market_awareness VALUES (?,?,?,?,?,?,?,?,?)"),sk=db.prepare("INSERT INTO fact_market_consideration VALUES (?,?,?,?,?,?,?,?)");
+  const se=db.prepare("INSERT INTO fact_market_engagement VALUES (?,?,?,?,?,?,?,?,?,?)");
+  MK.forEach(m=>weeks.forEach(wk=>{
+    const game=games.find(g=>g.mk===m.id&&g.season===wk.y),gw=game?game.week-wk.w:99; // gw: weeks until the game (0 = game week)
+    const wts=teams.map(t=>t.appeal*(m.rights.has(t.id)?2.4:1)*(game&&game.teams.includes(t.id)?1.7:1)),wsum=wts.reduce((a,b)=>a+b,0);
+    const others=teams.reduce((a,t,i)=>a+(game&&game.teams.includes(t.id)?0:wts[i]),0);
+    const seas=(wk.w<=0?.62+.08*(wk.w+2):1+.012*wk.w)*(gw===0?2.1:gw>0&&gw<=3?1.2:gw<0&&gw>=-2?1.25:1);
+    const y26=wk.y===2026,grow=y26?GROW[m.pres]:1;
+    teams.forEach((t,ti)=>{
+      const base=m.pop*1e6*PEN[m.pres]*(wts[ti]/wsum)*seas*grow*rb(.9,1.1);
+      let reach=0,imps=0;
+      CH.forEach(([ch,sh,fq,spk,vv])=>{
+        const rc=R(base*sh*rb(.88,1.12)),im=R(rc*rb(fq[0],fq[1])),sp=spk?r2(im/1000*m.cpm*(y26?1.04:1)*spk*rb(.9,1.1)):0;
+        const fol=ch==="Social"?R(rc*rb(.003,.006)*m.k1*PF1[m.pres]):0;
+        sa.run([m.id,wk.ws,t.id,ch,rc,im,sp,R(rc*rb(vv[0],vv[1])),fol]);reach+=rc;imps+=im;
+      });
+      // Know: a share of the people reached create a league ID (capped so the funnel never inverts)
+      const reg=Math.min(reach,R(reach*.0088*m.k1*PF1[m.pres]*(y26?1.07:1)*(gw>=0&&gw<=4?1.35:1)*rb(.85,1.15)));
+      sk.run([m.id,wk.ws,t.id,Math.min(reach,R(reg*rb(1.35,1.75))),reg,Math.min(reg,R(reg*rb(.36,.54))),R(imps*rb(.018,.03)*(.75+.25*PF1[m.pres])),Math.min(reg,R(reg*rb(.08,.14)))]);
+      // Engage: a share of registered fans buy, attend or subscribe
+      const engaged=Math.min(reg,R(reg*.24*m.k2*PF2[m.pres]*(y26?1.05:1)*(gw>=0&&gw<=5?1.2:1)*rb(.85,1.15)));
+      const orders=R(engaged*rb(.55,.7)),playing=game&&game.teams.includes(t.id),share=playing?.2:.6*wts[ti]/others;
+      let tix=R(engaged*rb(.02,.06)),att=0;
+      if(game&&TW[gw])tix+=R(game.cap*.8*TW[gw]*share*rb(.9,1.1));
+      if(game&&gw===0)att=R(game.cap*game.fill*share);
+      se.run([m.id,wk.ws,t.id,tix,att,orders,r2(orders*m.aov*rb(.9,1.12)),R(engaged*rb(.17,.25)),R(engaged*rb(.26,.4)*(.7+.3*PF2[m.pres])),engaged]);
+    });
+  }));
+  sa.free();sk.free();se.free();
+
+  // quarterly brand tracker: league-level rows (team_id NULL) plus one row per club
+  const ss=db.prepare("INSERT INTO fact_brand_survey VALUES (?,?,?,?,?,?,?)"),QS=["2025-Q1","2025-Q2","2025-Q3","2025-Q4","2026-Q1","2026-Q2","2026-Q3","2026-Q4"];
+  MK.forEach(m=>{const a0=rb(...AID0[m.pres]);QS.forEach((qt,qi)=>{
+    const n=R(rb(1100,1600)*(m.pres==="Emerging"?.7:1)),lg=Math.min(92,a0+qi*AIDSTEP[m.pres]+rb(-1,1));
+    ss.run([m.id,qt,null,n,r1(lg),r1(lg*rb(.32,.4)),r1(rb(52,64))]);
+    teams.forEach(t=>{const a=lg*Math.min(.9,.2+.28*t.appeal*(m.rights.has(t.id)?1.6:1))*rb(.92,1.08);ss.run([m.id,qt,t.id,n,r1(a),r1(a*rb(.18,.32)),r1(rb(38,70))])});
+  })});
+  ss.free();
+  db.run(`CREATE INDEX ix_maw ON fact_market_awareness(week_start, market_id, team_id);
+    CREATE INDEX ix_mco ON fact_market_consideration(week_start, market_id, team_id);
+    CREATE INDEX ix_men ON fact_market_engagement(week_start, market_id, team_id);`);
+  db.run("COMMIT");
 }

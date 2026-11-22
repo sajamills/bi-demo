@@ -585,3 +585,199 @@ NOTES.kpi.push("What-if: drag the streaming CPM – delivered impressions stay f
 TOUR.splice(TOUR.length-1,0,{tab:"gov",sel:"#dcWrap",text:"Data contracts: simulate the odds vendor renaming a field. The batch is quarantined, last good lines keep serving, and the right people are alerted – before any dashboard breaks."},
   {tab:"fan",sel:"#fiStats",text:"Fan 360: the same fan appears in four systems. Identity resolution turns records into golden fans – and reveals that subscribers who also shop churn far less."});
 TOUR.push({tab:"plan",sel:"#planCols",text:"How I'd run this role: listen, certify, scale – every step linked to something you've just seen."});
+
+/* ---------- International Fan Journey (See / Know / Engage) ---------- */
+// Periods compare with the same weeks of 2025. week_start is the Thursday that opens each game week.
+const INTL_PERIODS={
+  std:{label:"2026 season to date (Wks 1–10)",start:"2026-09-10",end:"2026-11-12",prior:{start:"2025-09-04",end:"2025-11-06"}},
+  l4:{label:"Last 4 weeks (Wks 7–10)",start:"2026-10-22",end:"2026-11-12",prior:{start:"2025-10-16",end:"2025-11-06"}},
+  lq:{label:"Last quarter (13 weeks)",start:"2026-08-20",end:"2026-11-12",prior:{start:"2025-08-14",end:"2025-11-06"}},
+};
+// survey quarters that overlap a date range, e.g. 2026-09-10..2026-11-12 → ['2026-Q3','2026-Q4']
+function intlQuarters(start,end){const out=[];let y=+start.slice(0,4),q=Math.ceil(+start.slice(5,7)/3);const ey=+end.slice(0,4),eq=Math.ceil(+end.slice(5,7)/3);
+  while(y<ey||(y===ey&&q<=eq)){out.push(`${y}-Q${q}`);if(++q>4){q=1;y++}}return out}
+// filters: f = {start, end, mkt, team, quarters}
+function intlWhere(f,a="x"){return [`${a}.week_start BETWEEN '${f.start}' AND '${f.end}'`,...(f.mkt?[`${a}.market_id = ${f.mkt}`]:[]),...(f.team?[`${a}.team_id = ${f.team}`]:[])].join("\n  AND ")}
+// one KPI over one fact table; byWeek adds the weekly series used for the sparkline
+const intlSql=(tbl,expr,extra="")=>(f,byWeek)=>`SELECT ${byWeek?"x.week_start, ":""}${expr} AS value
+FROM ${tbl} x
+WHERE ${intlWhere(f)}${extra}${byWeek?"\nGROUP BY x.week_start\nORDER BY x.week_start":""};`;
+const INTL_STAGES={
+  see:{name:"See",sub:"Awareness",q:"Do fans in this market know the league and the club?"},
+  know:{name:"Know",sub:"Consideration",q:"Have they raised a hand – downloaded, registered, opted in?"},
+  engage:{name:"Engage",sub:"Conversion",q:"Are they buying, attending and subscribing – and coming back?"},
+};
+const IO={see:["VP International Media","International Media Analytics","Daily (social, ad and partner feeds)"],know:["VP Fan Data & Marketing","Fan Data Steward","Daily 6:00 AM"],
+  engage:["SVP International Business","International Commercial Analytics","Daily · international games game day + 48 h"]};
+const INTL_KPIS=[
+  {id:"reach",stage:"see",label:"Reach",fmt:"cnt",src:"fact_market_awareness",
+   def:"People reached each week across social, broadcast, streaming and paid digital, summed over the weeks in the period (gross weekly reach).",
+   sql:intlSql("fact_market_awareness","SUM(x.reach)")},
+  {id:"imps",stage:"see",label:"Impressions",fmt:"cnt",src:"fact_market_awareness",
+   def:"Content and ad impressions delivered to people in the market across all four channels.",
+   sql:intlSql("fact_market_awareness","SUM(x.impressions)")},
+  {id:"viewers",stage:"see",label:"Broadcast + streaming viewers",fmt:"cnt",src:"fact_market_awareness",
+   def:"People who watched games or league programming through international broadcast partners or League+ International, summed by week.",
+   sql:intlSql("fact_market_awareness","SUM(x.reach)","\n  AND x.channel IN ('Broadcast', 'Streaming')")},
+  {id:"followers",stage:"see",label:"Social follower growth",fmt:"cnt",src:"fact_market_awareness",
+   def:"Net new followers of league and club social accounts from the market.",
+   sql:intlSql("fact_market_awareness","SUM(x.social_followers_gained)")},
+  {id:"cpm",stage:"see",label:"CPM (paid media)",fmt:"money2",inverse:true,src:"fact_market_awareness",
+   def:"Ad spend ÷ impressions × 1,000 on paid channels (paid digital and promoted social). Broadcast and streaming impressions come through rights partners and carry no spend. Lower is better.",
+   sql:intlSql("fact_market_awareness","ROUND(1000.0 * SUM(x.ad_spend) / SUM(x.impressions), 2)","\n  AND x.ad_spend > 0")},
+  {id:"aided",stage:"see",label:"Aided awareness",fmt:"pct",src:"fact_brand_survey",owner:["VP International Media","International Brand Research","Quarterly brand tracker"],
+   def:"Share of adults who recognize the league (Club = All) or the selected club when prompted, from the quarterly brand tracker. Markets are weighted by population; quarters that overlap the period are averaged.",
+   sql:(f,byQuarter)=>`SELECT ${byQuarter?"x.quarter, ":""}ROUND(SUM(x.aided_awareness_pct * m.population_m) / SUM(m.population_m), 1) AS value
+FROM fact_brand_survey x
+JOIN dim_market m ON m.market_id = x.market_id
+WHERE ${byQuarter?`x.quarter <= '${f.quarters[f.quarters.length-1]}'`:`x.quarter IN (${f.quarters.map(q=>`'${q}'`).join(", ")})`}
+  AND ${f.team?`x.team_id = ${f.team}`:"x.team_id IS NULL"}${f.mkt?`\n  AND x.market_id = ${f.mkt}`:""}${byQuarter?"\nGROUP BY x.quarter\nORDER BY x.quarter":""};`},
+  {id:"installs",stage:"know",label:"App installs",fmt:"cnt",src:"fact_market_consideration",
+   def:"New installs of the league and club apps from the market's app stores.",
+   sql:intlSql("fact_market_consideration","SUM(x.app_installs)")},
+  {id:"registered",stage:"know",label:"Registered / identified fans",fmt:"cnt",src:"fact_market_consideration",
+   def:"New fan accounts (league ID, app, ticketing or League+) created in the period and resolved to one Fan 360 ID. The middle of the funnel.",
+   sql:intlSql("fact_market_consideration","SUM(x.registered_fans)")},
+  {id:"optin",stage:"know",label:"Email opt-in rate",fmt:"pct",src:"fact_market_consideration",
+   def:"Email opt-ins ÷ newly registered fans. Consent is captured under each market's privacy law.",
+   sql:intlSql("fact_market_consideration","ROUND(100.0 * SUM(x.email_opt_ins) / SUM(x.registered_fans), 1)")},
+  {id:"engrate",stage:"know",label:"Content engagement rate",fmt:"pct2",src:"fact_market_consideration + fact_market_awareness",
+   def:"Content engagements (likes, shares, comments, video completes) ÷ impressions in the same weeks.",
+   sql:(f,byWeek)=>`WITH c AS (
+  SELECT x.week_start, SUM(x.content_engagements) AS engagements
+  FROM fact_market_consideration x
+  WHERE ${intlWhere(f).replace(/\n  /g,"\n    ")}
+  GROUP BY x.week_start
+), a AS (
+  SELECT x.week_start, SUM(x.impressions) AS impressions
+  FROM fact_market_awareness x
+  WHERE ${intlWhere(f).replace(/\n  /g,"\n    ")}
+  GROUP BY x.week_start
+)
+SELECT ${byWeek?"c.week_start, ":""}ROUND(100.0 * SUM(c.engagements) / SUM(a.impressions), 2) AS value
+FROM c
+JOIN a ON a.week_start = c.week_start${byWeek?"\nGROUP BY c.week_start\nORDER BY c.week_start":""};`},
+  {id:"trials",stage:"know",label:"Streaming trials",fmt:"cnt",src:"fact_market_consideration",
+   def:"Free trials of League+ International started by fans in the market.",
+   sql:intlSql("fact_market_consideration","SUM(x.streaming_trials)")},
+  {id:"attendance",stage:"engage",label:"International game attendance",fmt:"cnt",src:"fact_market_engagement + bridge_game_market",
+   def:"Scanned attendance at league games played in the market (see bridge_game_market), attributed to clubs by the fans' club affinity. Zero in markets with no game in the period.",
+   sql:intlSql("fact_market_engagement","SUM(x.intl_game_attendance)")},
+  {id:"tickets",stage:"engage",label:"Ticket purchases",fmt:"cnt",src:"fact_market_engagement",
+   def:"Tickets bought by fans resident in the market – international games plus travel to home games.",
+   sql:intlSql("fact_market_engagement","SUM(x.intl_game_tickets)")},
+  {id:"merch",stage:"engage",label:"Merch revenue",fmt:"money",src:"fact_market_engagement",
+   def:"Merchandise revenue from orders shipped to the market (league and club stores), in USD.",
+   sql:intlSql("fact_market_engagement","SUM(x.merch_revenue)")},
+  {id:"subs",stage:"engage",label:"Paid league subscriptions",fmt:"cnt",src:"fact_market_engagement",
+   def:"New paid League+ International subscriptions started in the period.",
+   sql:intlSql("fact_market_engagement","SUM(x.paid_subscriptions)")},
+  {id:"repeat",stage:"engage",label:"Repeat-engaged fans",fmt:"pct",src:"fact_market_engagement",
+   def:"Share of engaged fans (ticket, merch, subscription or attendance) who had engaged before – the loyalty signal.",
+   sql:intlSql("fact_market_engagement","ROUND(100.0 * SUM(x.repeat_engaged_fans) / SUM(x.engaged_fans), 1)")},
+];
+INTL_KPIS.forEach(k=>{if(!k.owner)k.owner=IO[k.stage]});
+// funnel by any grouping: [] = one row, ["market_id"] = by market, ["team_id","market_id"] = club × market
+function intlFunnelSql(f,by=[]){
+  const g=by.length?by.map(c=>"x."+c).join(", "):"",sel=g?g+", ":"",grp=g?`\n  GROUP BY ${g}`:"",w=intlWhere(f).replace(/\n  /g,"\n    ");
+  const on=t=>by.length?by.map(c=>`${t}.${c} = a.${c}`).join(" AND "):"1 = 1";
+  return `WITH a AS (
+  SELECT ${sel}SUM(x.reach) AS reach FROM fact_market_awareness x
+  WHERE ${w}${grp}
+), k AS (
+  SELECT ${sel}SUM(x.registered_fans) AS registered FROM fact_market_consideration x
+  WHERE ${w}${grp}
+), e AS (
+  SELECT ${sel}SUM(x.engaged_fans) AS engaged FROM fact_market_engagement x
+  WHERE ${w}${grp}
+)
+SELECT ${by.map(c=>"a."+c+", ").join("")}a.reach, k.registered, e.engaged,
+       ROUND(100.0 * k.registered / a.reach, 2) AS see_to_know_pct,
+       ROUND(100.0 * e.engaged / k.registered, 1) AS know_to_engage_pct,
+       ROUND(100.0 * e.engaged / a.reach, 3) AS overall_pct
+FROM a
+JOIN k ON ${on("k")}
+JOIN e ON ${on("e")};`;
+}
+// football calendar for 2027: off-season = platform changes allowed; in season = game-day freeze Thu–Mon
+const INTL_CAL=[["Jan","post"],["Feb","off"],["Mar","off"],["Apr","off"],["May","off"],["Jun","off"],["Jul","off"],["Aug","pre"],["Sep","season"],["Oct","season"],["Nov","season"],["Dec","season"]];
+const INTL_CAL_KEY={post:["Postseason","full change freeze"],off:["Off-season","platform migrations allowed"],pre:["Pre-season","releases Tue/Wed"],season:["Season","game-day freeze Thu–Mon · releases Tue/Wed"]};
+const INTL_ROADMAP=[
+  {n:1,t:"Source international signals",when:"Q1 2027 · off-season",from:2,to:3,stages:["see"],owner:"Data Eng",
+   d:"Ingest social platforms, ad platforms, app analytics, international ticketing and broadcast partner data. Starts after the postseason freeze lifts in February.",
+   deps:"Broadcast partner data-sharing terms; ad-platform API access",risk:"Partners share only aggregated viewership",metric:"6 core markets × 4 source types landing daily in Bronze/Silver (Ireland and Spain follow)"},
+  {n:2,t:"Resolve international fans into Fan 360",when:"Q1–Q2 2027 · off-season",from:3,to:5,stages:["know"],owner:"Data Eng + Governance",
+   d:"Extend identity resolution to international sources, with consent handled per local privacy law (GDPR, LGPD, PIPEDA).",
+   deps:"Privacy/consent review per market; Fan 360 matching rules",risk:"Consent gaps block matching in some markets",metric:"60% of international registered fans matched to one ID"},
+  {n:3,t:"Certify the funnel KPIs",when:"Q2 2027 · off-season",from:5,to:6,stages:["see","know","engage"],owner:"BI + League International",
+   d:"Definitions agreed with the clubs and League International and published on the semantic layer – the 16 tiles above, with owner and lineage.",
+   deps:"Phase 1–2 data in Silver; club definition workshop",risk:"Clubs disagree on what counts as \"engaged\"",metric:"16 KPIs certified with owner and lineage"},
+  {n:4,t:"Club and league dashboards",when:"Pre-season 2027 · live by Week 1",from:7,to:8,stages:["see","know","engage"],owner:"BI + Governance",
+   d:"This tab, rolled out with club row-level security so each club sees its own markets plus league benchmarks. Releases on Tue/Wed only.",
+   deps:"Club SSO onboarding; certified KPIs (phase 3)",risk:"Club SSO onboarding (12 of 32 done today)",metric:"32 clubs active weekly"},
+  {n:5,t:"Activate and engage",when:"2027 season onward",from:9,to:12,stages:["engage"],owner:"Marketing + League International",live:"growthK2E",
+   d:"Push funnel-stage audiences to marketing for campaigns in each market, and measure lift per market against holdouts. Audience pushes run Tue/Wed – no pipeline changes on game days.",
+   deps:"Opted-in audiences from Fan 360; campaign holdout design",risk:"Lift is hard to isolate from international game halo",metric:"Know→Engage conversion +2 pts in Growth markets"},
+];
+const INTL_DEPS=[
+  ["Resolve international fans into Fan 360","Privacy/consent review per market (GDPR for UK, Ireland, Germany, Spain; LGPD Brazil; PIPEDA Canada; Australia Privacy Act; Mexico LFPDPPP)","Governance + Legal","High","One GDPR review covers four markets; match only consented records; market-by-market sign-off before go-live"],
+  ["Source international signals","Broadcast partner data-sharing terms (viewer-level vs aggregated data)","Media + Legal","High","Start with aggregated weekly viewership; add viewer-level terms at each partner's renewal"],
+  ["Club and league dashboards","Club SSO onboarding (IT + clubs)","Governance","High","Weekly club onboarding tracker; pilot with 12 onboarded clubs first"],
+  ["Certify the funnel KPIs","Timezone and late-arriving data for international game-day feeds (London, Munich kick off in local evening)","Data Eng","Medium","Store UTC + local time; 48-hour late-arrival window before game-week numbers are certified; game-day views marked provisional"],
+  ["Certify the funnel KPIs","Club agreement on definitions (registered vs engaged fan)","BI","Medium","Definition workshop with six pilot clubs; decision owner: SVP International Business"],
+  ["All phases","Game-day change freeze (Thu–Mon), postseason freeze and the off-season migration rule","Delivery","Medium","Platform work (phases 1–3) in the off-season; dashboard and campaign releases Tue/Wed only"],
+];
+const ERD_INTL={
+  tables:{
+    fact_market_awareness:{x:30,y:20,desc:"See. Grain: one row per market × week × club × channel (Social, Broadcast, Streaming, Paid digital). Source: social, ad-platform and broadcast-partner feeds.",owner:"League International",cols:[["market_id","int","FK"],["week_start","text"],["team_id","int","FK"],["channel","text"],["reach","int"],["impressions","int"],["ad_spend","real"],["video_views","int"],["social_followers_gained","int"]]},
+    fact_market_consideration:{x:30,y:265,desc:"Know. Grain: one row per market × week × club. Fan counts from app analytics and Fan 360 registrations.",owner:"League International",cols:[["market_id","int","FK"],["week_start","text"],["team_id","int","FK"],["app_installs","int"],["registered_fans","int"],["email_opt_ins","int"],["content_engagements","int"],["streaming_trials","int"]]},
+    fact_brand_survey:{x:30,y:470,desc:"See. Grain: one row per market × quarter × club; team_id NULL is the league brand. Source: quarterly brand tracker.",owner:"League International",cols:[["market_id","int","FK"],["quarter","text"],["team_id","int","FK"],["sample_n","int"],["aided_awareness_pct","real"],["unaided_awareness_pct","real"],["favorability_pct","real"]]},
+    dim_market:{x:445,y:20,desc:"International markets and the league's presence tier in each (Established, Growth, Emerging).",owner:"League International",cols:[["market_id","int","PK"],["country","text"],["region","text"],["iso2","text"],["timezone","text"],["population_m","real"],["league_presence","text"]]},
+    dim_team:{x:445,y:250,desc:"Shared club dimension – the same table the domestic star schema uses.",owner:"Club Business",cols:[["team_id","int","PK"],["team","text"],["conference","text"],["division","text"],["market_size","text"]]},
+    bridge_game_market:{x:445,y:430,desc:"Which games were played in an international market, and where. Links dim_game to dim_market without changing dim_game.",owner:"League International",cols:[["game_id","int","PK"],["market_id","int","FK"],["venue","text"],["city","text"],["venue_capacity","int"]]},
+    fact_market_engagement:{x:860,y:20,desc:"Engage. Grain: one row per market × week × club. Tickets, international game attendance, merch and League+ International subscriptions.",owner:"League International",cols:[["market_id","int","FK"],["week_start","text"],["team_id","int","FK"],["intl_game_tickets","int"],["intl_game_attendance","int"],["merch_orders","int"],["merch_revenue","real"],["paid_subscriptions","int"],["repeat_engaged_fans","int"],["engaged_fans","int"]]},
+    dim_game:{x:860,y:330,desc:"Shared game dimension – international games are flagged through bridge_game_market.",owner:"Football Operations",cols:[["game_id","int","PK"],["season","int"],["week","int"],["game_date","text"],["home_team_id","int","FK"],["away_team_id","int","FK"]]},
+  },
+  rels:[["fact_market_awareness","market_id","dim_market","market_id"],["fact_market_awareness","team_id","dim_team","team_id"],
+    ["fact_market_consideration","market_id","dim_market","market_id"],["fact_market_consideration","team_id","dim_team","team_id"],
+    ["fact_brand_survey","market_id","dim_market","market_id"],["fact_brand_survey","team_id","dim_team","team_id"],
+    ["fact_market_engagement","market_id","dim_market","market_id"],["fact_market_engagement","team_id","dim_team","team_id"],
+    ["bridge_game_market","market_id","dim_market","market_id"],["bridge_game_market","game_id","dim_game","game_id"],["dim_game","home_team_id","dim_team","team_id"]],
+  height:650
+};
+CATALOG.push(
+  ["dim_market","Gold","League International","International Data Steward","Public","On change",false],
+  ["fact_market_awareness","Gold","League International","International Media Analytics","Internal","Daily",false],
+  ["fact_market_consideration","Gold","League International","Fan Data Steward","Confidential","Daily 6 AM",false],
+  ["fact_market_engagement","Gold","League International","International Commercial Analytics","Confidential","Daily · intl games + 48 h",false],
+  ["fact_brand_survey","Gold","League International","International Brand Research","Internal","Quarterly",false],
+  ["bridge_game_market","Gold","League International","Football Ops Data","Internal","On change",false]);
+SAVED.push(
+  ["International funnel conversion by market",`-- See → Know → Engage by market, 2026 season to date (Weeks 1–10)
+${intlFunnelSql({start:"2026-09-10",end:"2026-11-12"},["market_id"]).replace(/^SELECT a\.market_id, /m,"SELECT m.country, m.league_presence, ").replace(/;$/,"\nJOIN dim_market m ON m.market_id = a.market_id\nORDER BY overall_pct DESC;")}`],
+  ["Top clubs by registered international fans",`-- New registered international fans per club, 2026 season to date, with each club's strongest market
+WITH club_market AS (
+  SELECT c.team_id, m.country, SUM(c.registered_fans) AS registered
+  FROM fact_market_consideration c
+  JOIN dim_market m ON m.market_id = c.market_id
+  WHERE c.week_start BETWEEN '2026-09-10' AND '2026-11-12'
+  GROUP BY c.team_id, m.country
+), ranked AS (
+  SELECT club_market.*,
+         RANK() OVER (PARTITION BY team_id ORDER BY registered DESC) AS rk,
+         SUM(registered) OVER (PARTITION BY team_id) AS total_registered
+  FROM club_market
+)
+SELECT t.team, r.total_registered AS registered_fans,
+       r.country AS top_market, r.registered AS top_market_fans,
+       ROUND(100.0 * r.registered / r.total_registered, 1) AS top_market_share_pct
+FROM ranked r
+JOIN dim_team t ON t.team_id = r.team_id
+WHERE r.rk = 1
+ORDER BY registered_fans DESC
+LIMIT 10;`]);
+NOTES.intl=["Framing: clubs are the business users, and the league international team compares them. I start from the end goal – Engage – and work backward: what has to be true in Know and See for a fan in Mexico or Germany to buy, attend or subscribe?",
+  "Top KPIs per stage: See = reach, impressions, broadcast + streaming viewers, follower growth, CPM and aided awareness; Know = app installs, registered fans, opt-in rate, content engagement and streaming trials; Engage = international game attendance, tickets, merch, paid subscriptions and repeat engagement. Every tile is SQL against the warehouse – tap ⓘ.",
+  "The view a club actually uses is conversion from one stage to the next in each market. The market table names the weaker step against the league benchmark – Brazil has reach but leaks at See→Know; Germany registers fans but leaks at Know→Engage. Click a market, then a heatmap cell, to drill to one club in one market.",
+  "Roadmap: sources → Fan 360 identity → certified KPIs → club dashboards → activation, timed to the football calendar so platform work lands in the off-season. The main risk is privacy and consent per market (GDPR, LGPD, PIPEDA) – it gates identity resolution, so it starts first."];
+TOUR.splice(TOUR.length-1,0,{tab:"intl",sel:"#iStages",text:"International Fan Journey: See / Know / Engage KPIs for every club in every market, ordered from the end goal back – with stage-to-stage conversion by market and the roadmap to deliver it."});
