@@ -25,7 +25,7 @@ $("#modal").onclick=e=>{if(e.target.id==="modal")$("#modal").hidden=true};
 /* ---------- navigation & notes ---------- */
 let current="overview";const rendered={};
 /* URL slugs: every tab has a shareable #hash (and /international is a friendly path rewritten to the app) */
-const SLUG={overview:"overview",brief:"brief",kpi:"kpi",ask:"ask",odds:"odds",erd:"erd",wh:"warehouse",sql:"sql",churn:"churn",fan:"fan-360",intl:"international",roadmap:"roadmap",gov:"governance",adopt:"adoption",plan:"90-days"};
+const SLUG={overview:"overview",brief:"brief",kpi:"kpi",ask:"ask",odds:"odds",erd:"erd",wh:"warehouse",sql:"sql",churn:"churn",fan:"fan-360",intl:"international",roadmap:"roadmap",gov:"governance",recon:"reconciliation",adopt:"adoption",plan:"90-days"};
 const TAB_OF=Object.fromEntries(Object.entries(SLUG).map(([t,s])=>[s,t]));
 const FRIENDLY_PATH=/\/international\/?$/;
 function tabFromUrl(){
@@ -448,8 +448,8 @@ function renderErd(view="star"){
   document.querySelectorAll("[data-erd]").forEach(b=>b.classList.toggle("on",b.dataset.erd===view));
   if(view==="arch"){$("#erd").innerHTML=flow(ARCH);return}
   if(view==="lineage"){$("#erd").innerHTML=flow(LINEAGE);return}
-  const S=view==="intl"?ERD_INTL:ERD,T=S.tables,anchor=(t,c)=>T[t].y+HH+T[t].cols.findIndex(x=>x[0]===c)*RH+RH/2;
-  let s=`<svg viewBox="0 0 1130 ${S.height||690}" role="img" aria-label="${view==="intl"?"International fan journey mart":"Star schema"} entity relationship diagram">`;
+  const S={intl:ERD_INTL,recon:ERD_RECON}[view]||ERD,T=S.tables,anchor=(t,c)=>T[t].y+HH+T[t].cols.findIndex(x=>x[0]===c)*RH+RH/2;
+  let s=`<svg viewBox="0 0 1130 ${S.height||690}" role="img" aria-label="${{intl:"International fan journey mart",recon:"Fan activation and survey reconciliation"}[view]||"Star schema"} entity relationship diagram">`;
   S.rels.forEach(([a,ac,b,bc],i)=>{
     const A=T[a],B=T[b],y1=anchor(a,ac),y2=anchor(b,bc);let d,x1,x2;
     if(Math.abs(A.x-B.x)<50){x1=A.x+BW;x2=B.x+BW;d=`M${x1},${y1} C${x1+50},${y1} ${x2+50},${y2} ${x2},${y2}`}
@@ -479,8 +479,8 @@ function renderErd(view="star"){
 }
 function erdInfo(t,S=ERD){
   const T=S.tables[t],n=one(`SELECT COUNT(*) FROM ${t}`),rel=S.rels.filter(r=>r[0]===t||r[2]===t);
-  const cat=CATALOG.find(c=>c[0]===t);
-  $("#erdInfo").innerHTML=`<h2>${t} <span class="badge ${t.startsWith("fact")?"b-info":"b-cert"}">${t.startsWith("fact")?"Fact":"Dimension"}</span> ${cat?`<span class="badge ${cat[4]==="PII"||cat[4]==="Restricted"?"b-bad":"b-warn"}">${cat[4]}</span>`:""}</h2>
+  const cat=CATALOG.find(c=>c[0]===t),kind=t.startsWith("fact")?"Fact":t.startsWith("gov")?"Governed lookup":"Dimension";
+  $("#erdInfo").innerHTML=`<h2>${t} <span class="badge ${t.startsWith("fact")?"b-info":"b-cert"}">${kind}</span> ${cat?`<span class="badge ${cat[4]==="PII"||cat[4]==="Restricted"?"b-bad":"b-warn"}">${cat[4]}</span>`:""}</h2>
     <p>${esc(T.desc)}</p><dl class="kv"><dt>Rows (live)</dt><dd>${n.toLocaleString()}</dd><dt>Owner</dt><dd>${esc(T.owner)}</dd>${cat?`<dt>Steward</dt><dd>${esc(cat[3])}</dd><dt>Freshness SLA</dt><dd>${esc(cat[5])}</dd>`:""}
     <dt>Joins</dt><dd>${rel.map(r=>`<code>${r[0]}.${r[1]} → ${r[2]}.${r[3]}</code>`).join("<br>")}</dd></dl>
     <button class="primary" id="erdQ">Query in SQL Lab</button>`;
@@ -764,6 +764,27 @@ function renderPlan(){
   $("#planKpis").innerHTML=PLAN_KPIS.map(([a,b,c])=>`<div class="card"><span>${a}</span><b>${b}</b><small>${c}</small></div>`).join("");
   $("#planPartners").innerHTML=table(["Partner","Rhythm","What they get"],PLAN_PARTNERS.map(([a,b,c])=>[`<b>${esc(a)}</b>`,`<span class="wrap">${esc(b)}</span>`,`<span class="wrap">${esc(c)}</span>`]));
   $("#planPartners").querySelectorAll("td").forEach(td=>td.style.whiteSpace="normal");
+  renderPlanTeam(name);
+}
+function renderPlanTeam(name){
+  const T=PLAN_TEAM,box=([a,b,c],cls="")=>`<div class="tbox ${cls}"><b>${esc(a)}</b><span>${esc(b)}</span><small>${esc(c)}</small></div>`;
+  const arrow=`<div class="tarrow" aria-hidden="true"><span>↓ requirements · priorities</span><span>↑ status · demos · risks</span></div>`;
+  $("#planTeamBody").innerHTML=`<div class="team">
+    <div class="tmain" role="list" aria-label="Who I work with, from the league program owner down to the engineers">
+      <div class="tlane k-league" role="listitem"><div class="tl">League</div>${box(T.owner)}</div>${arrow}
+      <div class="tstand"><div class="tsl">${esc(T.standup)}</div>
+        <div class="tlane k-me" role="listitem"><div class="tl">This role</div>${box(T.me,"me")}</div>${arrow}
+        <div class="tlane k-lead" role="listitem"><div class="tl">Nearshore Canada</div>${box(T.lead)}</div>${arrow}
+        <div class="tlane k-pods" role="listitem"><div class="tl">Engineers</div><div class="tpods">${T.pods.map(p=>box(p)).join("")}</div></div>
+      </div>
+    </div>
+    <div class="tdep" role="note"><div class="tdl">Dependency</div><div class="tbox dash"><b>${esc(T.dep[0])}</b><span>${esc(T.dep[1])}</span><small>${esc(T.dep[2])}</small><a data-go="${T.dep[3]}">→ ${name(T.dep[3])}</a></div><div class="tdarrow" aria-hidden="true">feeds → this role and the tech lead</div></div>
+  </div>
+  <div class="grid2 flat mt">
+    <div><h3 class="h3s">Rhythm</h3><table class="mini"><tbody>${T.rhythm.map(([a,b,go])=>`<tr><td>${esc(a)}</td><td>${esc(b)}${go?` <a data-go="${go}">→ ${name(go)}</a>`:""}</td></tr>`).join("")}</tbody></table></div>
+    <div class="tscale"><h3 class="h3s">From MVP to scale</h3><p>${esc(T.scale)}</p></div>
+  </div>`;
+  $("#planTeamBody").onclick=e=>{const a=e.target.closest("[data-go]");if(a)show(a.dataset.go)};
 }
 $("#dcYaml").textContent=DATA_CONTRACT;
 
@@ -802,7 +823,7 @@ function renderIntl(){
   const f=intlFilters(),mName=f.mkt?$("#iMarket").selectedOptions[0].textContent.split(" · ")[0]:"all markets",cName=f.team?$("#iClub").selectedOptions[0].textContent:"all clubs";
   $("#iScope").textContent=`Showing ${cName} in ${mName} · ${f.label} · changes vs the same weeks of 2025`;
   const fu=funnel(f),fp=funnel(f.prior);
-  renderIntlStages(f,fu,fp);renderIntlFunnel(f,fu,fp);renderIntlMarkets(f);renderIntlHeat(f);
+  renderIntlStages(f,fu,fp);renderIntlFunnel(f,fu,fp);renderIntlMarkets(f);renderIntlMix(f);renderIntlHeat(f);
   if(!$("#iPhases").innerHTML)renderIntlRoadmap();
 }
 function renderIntlStages(f,fu,fp){
@@ -842,7 +863,21 @@ function renderIntlMarkets(f){
       <td class="num ${wk(r,"s2k")}">${r.see_to_know_pct.toFixed(2)}%</td><td class="num ${wk(r,"k2e")}">${r.know_to_engage_pct.toFixed(1)}%</td><td class="num"><b>${r.overall_pct.toFixed(3)}%</b></td><td>${vs(r)}</td></tr>`).join("")}
     <tr class="tot"><td><b>League benchmark</b></td><td></td><td class="num">${cnt(lg.reach)}</td><td class="num">${cnt(lg.registered)}</td><td class="num">${cnt(lg.engaged)}</td><td class="num">${IFMT.pct2(lg.see_to_know_pct)}</td><td class="num">${lg.know_to_engage_pct==null?"–":lg.know_to_engage_pct.toFixed(1)+"%"}</td><td class="num"><b>${IFMT.pct3(lg.overall_pct)}</b></td><td class="muted">${f.team?"this club, all markets":"all clubs, all markets"}</td></tr></tbody></table>`;
 }
+function renderIntlMix(f){
+  const d=rows(intlMixSql(f)),spend=d.reduce((a,r)=>a+(r.ad_spend||0),0),imps=d.reduce((a,r)=>a+(r.impressions||0),0);
+  const tb=t=>`<span class="badge ${t==="Traditional"?"b-warn":t==="Digital"?"b-info":"b-cert"}">${esc(t)}</span>`;
+  $("#iMix").innerHTML=table(["Channel","Type","Reach","Impressions","Spend","CPM","Share of spend"],[...d.map(r=>[`<b>${esc(r.channel)}</b>`,tb(r.media_type),r.reach==null?'<span class="muted">modeled</span>':cnt(r.reach),cnt(r.impressions),r.ad_spend?money(r.ad_spend):'<span class="muted">rights partner</span>',
+    r.ad_spend?FMT.money2(1000*r.ad_spend/r.impressions):"–",r.ad_spend?`<span class="pbar"><i style="width:${(100*r.ad_spend/spend).toFixed(1)}%"></i></span>${(100*r.ad_spend/spend).toFixed(1)}%`:"–"]),
+    [`<b>All channels</b>`,"","",`<b>${cnt(imps)}</b>`,`<b>${money(spend)}</b>`,spend?FMT.money2(1000*spend/d.filter(r=>r.ad_spend).reduce((a,r)=>a+r.impressions,0)):"–",""]],[2,3,4,5]);
+}
+let homeClubs=null;
+function renderIntlHome(f){
+  homeClubs=homeClubs||rows(INTL_HOME_SQL);
+  $("#iHome").innerHTML=`<span class="hclab"><b class="hc">★</b> Home club – the club fans in each market have adopted as their team · share of surveyed fans naming it:</span>`+homeClubs.map(h=>
+    `<button type="button" class="hchip ${f.mkt===h.market_id&&f.team===h.team_id?"on":""}" data-hmk="${h.market_id}" data-hteam="${h.team_id}" aria-label="Filter to ${esc(h.team)} in ${esc(h.country)}"><b>${esc(h.hub_city)}</b> ${esc(h.country.replace("United Kingdom","UK"))} → ${esc(nick(h.team))} <span class="muted">${h.fan_share_pct.toFixed(0)}%</span></button>`).join("");
+}
 function renderIntlHeat(f){
+  renderIntlHome(f);const HC=Object.fromEntries(homeClubs.map(h=>[h.market_id,h.team_id]));
   const M=rows("SELECT market_id, country, iso2 FROM dim_market ORDER BY market_id"),T=rows("SELECT team_id, team FROM dim_team");
   const cells=rows(intlFunnelSql({...f,mkt:0,team:0},["team_id","market_id"])),by={};
   cells.forEach(c=>(by[c.team_id]=by[c.team_id]||{})[c.market_id]=c);
@@ -858,9 +893,10 @@ function renderIntlHeat(f){
   $("#iHmSub").textContent=`clubs ranked by ${{reach:"reach",registered:"registered fans",overall:"overall conversion"}[iHm]} in ${mName} · click a cell to filter by club and market`;
   $("#iHeat").innerHTML=`<table class="hm"><thead><tr><th>Club</th><th class="num">All markets</th>${M.map(m=>`<th class="num ${m.market_id===f.mkt?"on":""}" title="${esc(m.country)}">${esc(m.country.replace("United Kingdom","UK"))}</th>`).join("")}</tr></thead><tbody>${
     list.map(t=>`<tr class="${t.team_id===f.team?"on":""}"><td class="club">${esc(t.team)}</td><td class="num">${fmt(t.tot)}</td>${M.map(m=>{const c=(by[t.team_id]||{})[m.market_id],v=val(c),b=bin(v),on=t.team_id===f.team&&m.market_id===f.mkt;
-      return `<td class="c num ${SH[b]>=60?"dark":""} ${on?"on":""} ${m.market_id===f.mkt?"col":""}" style="background:color-mix(in srgb, ${color} ${SH[b]}%, var(--surface))" data-iteam="${t.team_id}" data-imk="${m.market_id}" tabindex="0" aria-label="${esc(t.team)} in ${esc(m.country)}: ${fmt(v)}">${fmt(v)}</td>`}).join("")}</tr>`).join("")}</tbody></table>`;
+      const home=HC[m.market_id]===t.team_id;
+      return `<td class="c num ${SH[b]>=60?"dark":""} ${on?"on":""} ${m.market_id===f.mkt?"col":""}" style="background:color-mix(in srgb, ${color} ${SH[b]}%, var(--surface))" data-iteam="${t.team_id}" data-imk="${m.market_id}" tabindex="0" aria-label="${esc(t.team)} in ${esc(m.country)}: ${fmt(v)}${home?" · home club":""}">${home?'<b class="hc" title="Home club">★</b>':""}${fmt(v)}</td>`}).join("")}</tr>`).join("")}</tbody></table>`;
   const edges=[all[0],...qt,all[all.length-1]];
-  $("#iHmLegend").innerHTML=`<span>Quintiles of all 256 club × market cells:</span>`+SH.map((s,i)=>`<span><i style="background:color-mix(in srgb, ${color} ${s}%, var(--surface))"></i>${fmt(edges[i])} – ${fmt(edges[i+1])}</span>`).join("");
+  $("#iHmLegend").innerHTML=`<span>Quintiles of all 256 club × market cells:</span>`+SH.map((s,i)=>`<span><i style="background:color-mix(in srgb, ${color} ${s}%, var(--surface))"></i>${fmt(edges[i])} – ${fmt(edges[i+1])}</span>`).join("")+`<span><b class="hc">★</b> home club</span>`;
 }
 function renderIntlRoadmap(){
   const base=one(`SELECT ROUND(100.0 * (SELECT SUM(x.engaged_fans) FROM fact_market_engagement x JOIN dim_market m ON m.market_id = x.market_id WHERE m.league_presence = 'Growth' AND x.week_start BETWEEN '${INTL_PERIODS.std.start}' AND '${INTL_PERIODS.std.end}')
@@ -894,6 +930,7 @@ function intlPick(e){
   const r=e.target.closest("[data-imkt]");if(r){const m=r.dataset.imkt;setIntl($("#iMarket").value===m?"":m,null);return}
   const c=e.target.closest("[data-iteam]");if(c){const on=$("#iMarket").value===c.dataset.imk&&$("#iClub").value===c.dataset.iteam;setIntl(on?"":c.dataset.imk,on?"":c.dataset.iteam)}
 }
+$("#iHome").addEventListener("click",e=>{const b=e.target.closest("[data-hmk]");if(!b)return;const on=$("#iMarket").value===b.dataset.hmk&&$("#iClub").value===b.dataset.hteam;setIntl(on?"":b.dataset.hmk,on?"":b.dataset.hteam)});
 ["#iMarkets","#iHeat"].forEach(s=>{$(s).addEventListener("click",intlPick);$(s).addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("[data-imkt],[data-iteam]")){e.preventDefault();intlPick(e)}})});
 
 /* share link: copies <origin>/international (preview deploys copy their own origin) */
@@ -909,7 +946,38 @@ $("#iCopyLink").onclick=()=>{
   if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(url).then(done,fail);else fail();
 };
 
-const RENDER={intl:renderIntl,fan:renderFan,plan:renderPlan,overview:renderOverview,kpi:renderKpi,odds:renderOdds,wh:renderWh,brief:renderBrief,ask:renderAsk,churn:renderChurn,erd:()=>renderErd("star"),sql:renderSql,roadmap:renderRoadmap,gov:renderGov,adopt:renderAdopt};
+/* ---------- Survey ↔ activation reconciliation ---------- */
+function renderRecon(){
+  const sm=rows(RECON_SUMMARY_SQL)[0],tot=sm.survey_rows,gap=sm.unmatched,pct=100*gap/tot,P=PAL();
+  const causes=rows(RECON_CAUSE_SQL),bySv=rows(RECON_BY_SURVEY_SQL),og=rows(RECON_ONGOING_SQL)[0],ogPct=100*og.still_missing/og.settled_rows;
+  const chk=RECON_CHECKS.map(c=>({c,v:one(c.sql)})),C=RECON_CAUSES,top=causes[0],TC=C[top.cause];
+  const sv=bySv.filter(r=>r.top_cause===top.cause&&r.unmatched).sort((a,b)=>b.unmatched-a.unmatched).slice(0,2).map(r=>r.event_name);
+  $("#rcStats").innerHTML=[["Survey responses",tot.toLocaleString(),"fact_fan_survey · 2026 to date"],["Matched in activation",(tot-gap).toLocaleString(),`1:1 on hashed email + event name`],
+    ["Missing from activation",gap.toLocaleString(),"survey rows with no activation row"],["% missing",pct.toFixed(1)+"%",`activation loaded through ${sm.loaded_through} UTC`]]
+    .map(([a,b,c],i)=>`<div class="card ${i>=2?"bad":""}"><span>${a}</span><b>${b}</b><small>${c}</small></div>`).join("");
+  $("#rcSentence").innerHTML=`<b>${pct.toFixed(1)}% of survey responses are missing from activation</b> (${gap.toLocaleString()} of ${tot.toLocaleString()}); <b>${Math.round(top.share_of_gap_pct)}% of those come from ${esc(TC.label)}</b>${sv.length?` – mostly the ${sv.map(esc).join(" and ")} survey${sv.length>1?"s":""}`:""}. <b>Fix:</b> ${esc(TC.fix)}. <b>Ongoing check:</b> ${esc(RECON_ONGOING.text)}.`;
+  $("#rcOngoing").innerHTML=`<span class="badge ${ogPct>RECON_ONGOING.threshold?"b-bad":"b-cert"}">${ogPct>RECON_ONGOING.threshold?"Would alert today":"Passing"}</span><span>Ongoing check run now: ${og.still_missing.toLocaleString()} of ${og.settled_rows.toLocaleString()} responses older than 48 hours are still missing (<b>${ogPct.toFixed(1)}%</b> vs the ${RECON_ONGOING.threshold}% threshold). Timing rows drop out once they load, so it only alerts on real loss.</span>
+    <button class="ghost" type="button" data-rcsql="ongoing">View SQL</button>`;
+  const res=(c,v)=>c.id==="gap"?`<span class="badge b-bad">${pct.toFixed(1)}% missing</span>`:c.pass?`<span class="badge ${v===0?"b-cert":"b-bad"}">${v===0?"Pass":"Fail"}</span>`:c.info?`<span class="badge b-warn">${v?"Info · not a cause":"Pass"}</span>`
+    :!v?`<span class="badge b-cert">Pass</span>`:c.cause==="timing"?`<span class="badge b-warn">Self-heals next load</span>`:c.cause==="unexplained"?`<span class="badge b-warn">Escalate</span>`:`<span class="badge b-bad">Explains ${(100*v/gap).toFixed(0)}%</span>`;
+  $("#rcChecks").innerHTML=table(["#","Check","Rows","Share of gap","Result",""],chk.map(({c,v},i)=>[i+1,`<b>${esc(c.t)}</b><span class="sub wrap">${esc(c.d)}</span>`,v.toLocaleString(),
+    c.cause?(100*v/gap).toFixed(1)+"%":c.id==="gap"?"100%":"–",res(c,v),`<button class="ghost" type="button" data-rcsql="${i}">View SQL</button>`]),[0,2,3]);
+  $("#rcChecks").querySelectorAll("td:nth-child(2)").forEach(td=>td.style.whiteSpace="normal");
+  const col=c=>c==="unexplained"?P[5]:c==="timing"?P[2]:c===top.cause?P[0]:P[1];
+  mkChart("cRecon",{type:"bar",data:{labels:causes.map(c=>C[c.cause].short),datasets:[{label:"Share of the gap (%)",data:causes.map(c=>c.share_of_gap_pct),backgroundColor:causes.map(c=>col(c.cause)),borderRadius:4}]},
+    options:{indexAxis:"y",maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:x=>` ${causes[x.dataIndex].rows} rows · ${x.raw}% of the gap`}}},scales:{x:{title:{display:true,text:"% of missing survey responses"},beginAtZero:true}}}});
+  $("#rcPlan").innerHTML=table(["Cause","Rows","Fix","Owner"],causes.map(c=>[`<b>${esc(C[c.cause].short)}</b><span class="sub">${c.share_of_gap_pct}% of the gap</span>`,c.rows,`<span class="wrap">${esc(C[c.cause].fix[0].toUpperCase()+C[c.cause].fix.slice(1))}</span>`,`<span class="wrap">${esc(C[c.cause].owner)}</span>`]),[1]);
+  $("#rcBySurvey").innerHTML=table(["Survey","Responses","Missing","% missing","Top cause"],bySv.map(r=>[`<b>${esc(r.event_name)}</b><span class="sub">${esc(r.survey_id)}</span>`,r.responses.toLocaleString(),r.unmatched,
+    `<span class="${r.missing_pct>pct?"down":""}">${r.missing_pct.toFixed(1)}%</span>`,r.top_cause?esc(C[r.top_cause].short):"–"]),[1,2,3]);
+  ["#rcPlan","#rcBySurvey"].forEach(s=>$(s).querySelectorAll("td").forEach(td=>td.style.whiteSpace="normal"));
+}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-rcsql]");if(!b)return;
+  const c=b.dataset.rcsql==="ongoing"?{t:"Ongoing reconciliation check",d:RECON_ONGOING.text,sql:RECON_ONGOING_SQL}:RECON_CHECKS[+b.dataset.rcsql];
+  modal(`<h3>${esc(c.t)}</h3><p class="muted">${esc(c.d)} Hashes only – the query never touches an email.</p><pre>${esc(c.sql)}</pre><button class="primary" id="toSqlR">Open in SQL Lab</button>`);
+  $("#toSqlR").onclick=()=>{$("#modal").hidden=true;openInSql(c.sql)}});
+$("#rcRun").onclick=()=>{if(db){rendered.recon=true;renderRecon()}};
+
+const RENDER={recon:renderRecon,intl:renderIntl,fan:renderFan,plan:renderPlan,overview:renderOverview,kpi:renderKpi,odds:renderOdds,wh:renderWh,brief:renderBrief,ask:renderAsk,churn:renderChurn,erd:()=>renderErd("star"),sql:renderSql,roadmap:renderRoadmap,gov:renderGov,adopt:renderAdopt};
 
 /* ---------- boot ---------- */
 {const t=tabFromUrl();show(t,FRIENDLY_PATH.test(location.pathname)||(location.hash&&location.hash!=="#"+SLUG[t])?"replace":"none")}

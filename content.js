@@ -660,6 +660,9 @@ JOIN a ON a.week_start = c.week_start${byWeek?"\nGROUP BY c.week_start\nORDER BY
   {id:"trials",stage:"know",label:"Streaming trials",fmt:"cnt",src:"fact_market_consideration",
    def:"Free trials of League+ International started by fans in the market.",
    sql:intlSql("fact_market_consideration","SUM(x.streaming_trials)")},
+  {id:"ooh",stage:"know",label:"Out-of-home viewers (bars & venues)",fmt:"cnt",src:"fact_market_ooh_viewing",
+   def:"Fans who watched league games out of home – at a bar, pub, watch party or partner venue in the market – from partner-venue check-ins and venue audience panels, summed by week. Watching with other fans at a venue is how many international fans get to know a club.",
+   sql:intlSql("fact_market_ooh_viewing","SUM(x.ooh_viewers)")},
   {id:"attendance",stage:"engage",label:"International game attendance",fmt:"cnt",src:"fact_market_engagement + bridge_game_market",
    def:"Scanned attendance at league games played in the market (see bridge_game_market), attributed to clubs by the fans' club affinity. Zero in markets with no game in the period.",
    sql:intlSql("fact_market_engagement","SUM(x.intl_game_attendance)")},
@@ -710,8 +713,8 @@ const INTL_ROADMAP=[
    d:"Extend identity resolution to international sources, with consent handled per local privacy law (GDPR, LGPD, PIPEDA).",
    deps:"Privacy/consent review per market; Fan 360 matching rules",risk:"Consent gaps block matching in some markets",metric:"60% of international registered fans matched to one ID"},
   {n:3,t:"Certify the funnel KPIs",when:"Q2 2027 · off-season",from:5,to:6,stages:["see","know","engage"],owner:"BI + League International",
-   d:"Definitions agreed with the clubs and League International and published on the semantic layer – the 16 tiles above, with owner and lineage.",
-   deps:"Phase 1–2 data in Silver; club definition workshop",risk:"Clubs disagree on what counts as \"engaged\"",metric:"16 KPIs certified with owner and lineage"},
+   d:"Definitions agreed with the clubs and League International and published on the semantic layer – the "+INTL_KPIS.length+" tiles above, with owner and lineage.",
+   deps:"Phase 1–2 data in Silver; club definition workshop",risk:"Clubs disagree on what counts as \"engaged\"",metric:INTL_KPIS.length+" KPIs certified with owner and lineage"},
   {n:4,t:"Club and league dashboards",when:"Pre-season 2027 · live by Week 1",from:7,to:8,stages:["see","know","engage"],owner:"BI + Governance",
    d:"This tab, rolled out with club row-level security so each club sees its own markets plus league benchmarks. Releases on Tue/Wed only.",
    deps:"Club SSO onboarding; certified KPIs (phase 3)",risk:"Club SSO onboarding (12 of 32 done today)",metric:"32 clubs active weekly"},
@@ -777,7 +780,196 @@ WHERE r.rk = 1
 ORDER BY registered_fans DESC
 LIMIT 10;`]);
 NOTES.intl=["Framing: clubs are the business users, and the league international team compares them. I start from the end goal – Engage – and work backward: what has to be true in Know and See for a fan in Mexico or Germany to buy, attend or subscribe?",
-  "Top KPIs per stage: See = reach, impressions, broadcast + streaming viewers, follower growth, CPM and aided awareness; Know = app installs, registered fans, opt-in rate, content engagement and streaming trials; Engage = international game attendance, tickets, merch, paid subscriptions and repeat engagement. Every tile is SQL against the warehouse – tap ⓘ.",
+  "Top KPIs per stage: See = reach, impressions, broadcast + streaming viewers, follower growth, CPM and aided awareness; Know = app installs, registered fans, opt-in rate, content engagement, streaming trials and out-of-home viewing at bars and venues; Engage = international game attendance, tickets, merch, paid subscriptions and repeat engagement. Every tile is SQL against the warehouse – tap ⓘ.",
   "The view a club actually uses is conversion from one stage to the next in each market. The market table names the weaker step against the league benchmark – Brazil has reach but leaks at See→Know; Germany registers fans but leaks at Know→Engage. Click a market, then a heatmap cell, to drill to one club in one market.",
   "Roadmap: sources → Fan 360 identity → certified KPIs → club dashboards → activation, timed to the football calendar so platform work lands in the off-season. The main risk is privacy and consent per market (GDPR, LGPD, PIPEDA) – it gates identity resolution, so it starts first."];
 TOUR.splice(TOUR.length-1,0,{tab:"intl",sel:"#iStages",text:"International Fan Journey: See / Know / Engage KPIs for every club in every market, ordered from the end goal back – with stage-to-stage conversion by market and the roadmap to deliver it."});
+
+/* ---------- Survey ↔ activation reconciliation ---------- */
+// One base CTE: pair survey rows 1:1 with Survey events in activation on hashed email + event name
+// (ROW_NUMBER so a double-submitted survey can't pair with the single activation row), then classify each
+// unmatched survey row by the first check that explains it.
+const RECON_BASE=`WITH s AS (
+  SELECT sv.*, ROW_NUMBER() OVER (PARTITION BY sv.hashed_email, sv.event_name
+                                  ORDER BY datetime(sv.submitted_ts), sv.response_id) AS n
+  FROM fact_fan_survey sv
+), a AS (
+  SELECT ac.*, ROW_NUMBER() OVER (PARTITION BY ac.hashed_email, ac.event_name
+                                  ORDER BY ac.event_ts, ac.activation_id) AS n
+  FROM fact_fan_activation ac
+  WHERE ac.event_type = 'Survey'
+), unmatched AS (            -- the anti-join: survey rows with no activation counterpart
+  SELECT s.*
+  FROM s
+  LEFT JOIN a ON a.hashed_email = s.hashed_email
+             AND a.event_name = s.event_name
+             AND a.n = s.n
+  WHERE a.activation_id IS NULL
+), classified AS (
+  SELECT u.*,
+    CASE
+      WHEN u.hashed_email IS NULL OR TRIM(u.hashed_email) = '' THEN 'null_hash'
+      -- vault re-hashed the governed email as lower(trim(email)); does THAT hash match activation?
+      WHEN EXISTS (SELECT 1 FROM gov_hash_crosswalk x
+                   JOIN fact_fan_activation ac ON ac.hashed_email = x.normalized_hash AND ac.event_name = u.event_name
+                   WHERE x.source_hash = u.hashed_email) THEN 'hash_norm'
+      -- same fan, a Survey event within an hour, under a name no survey row uses
+      WHEN EXISTS (SELECT 1 FROM fact_fan_activation ac
+                   WHERE ac.hashed_email = u.hashed_email AND ac.event_type = 'Survey'
+                     AND ac.event_name <> u.event_name
+                     AND ABS(julianday(ac.event_ts) - julianday(u.submitted_ts)) < 1.0 / 24
+                     AND NOT EXISTS (SELECT 1 FROM fact_fan_survey sv
+                                     WHERE sv.hashed_email = ac.hashed_email AND sv.event_name = ac.event_name)) THEN 'event_map'
+      -- submitted (in UTC) on a day whose activation partition has not loaded yet
+      WHEN date(u.submitted_ts) > (SELECT date(MAX(event_ts)) FROM fact_fan_activation) THEN 'timing'
+      WHEN u.n > 1 THEN 'duplicate'
+      ELSE 'unexplained'
+    END AS cause
+  FROM unmatched u
+)`;
+// cause: label, what to fix, who owns the fix
+const RECON_CAUSES={
+  hash_norm:{label:"hash normalization",short:"Hash normalization",fix:"lowercase and trim emails before SHA-256 in the in-venue survey vendor's export, and backfill the affected rows through the vault crosswalk",owner:"Survey platform vendor + Fan Data"},
+  event_map:{label:"event-name mapping",short:"Event name mapping",fix:"add the vendor's event code to the governed event-name mapping and reprocess the orphan activation rows",owner:"Data-provider team (activation)"},
+  timing:{label:"the UTC partition cutoff",short:"Timing: partition cutoff",fix:"compare both tables on the same UTC cutoff and certify the numbers after a 48-hour late-arrival window",owner:"Data Eng"},
+  null_hash:{label:"null or empty hashes",short:"Null or empty hash",fix:"require a hashed fan ID at survey submission and report anonymous responses as their own bucket",owner:"Survey platform vendor"},
+  duplicate:{label:"duplicate submissions",short:"Duplicate submission",fix:"dedupe survey submissions on hash + survey within 10 minutes before counting",owner:"BI"},
+  unexplained:{label:"unexplained rows",short:"Unexplained",fix:"send the row list to the data-provider team to trace through the activation webhook logs",owner:"Data-provider team (activation)"},
+};
+// validation checklist: each check is SQL run live; cause = the bucket it explains (share of the gap)
+const RECON_CHECKS=[
+  {id:"gap",t:"Quantify the gap",d:"Anti-join survey → activation on hashed email + event name, 1:1 so duplicates can't hide.",
+   sql:`${RECON_BASE}\nSELECT COUNT(*) FROM unmatched;`},
+  {id:"algo",t:"Same hash algorithm and encoding",d:"Every non-empty hash on both sides is a 64-character lowercase hex SHA-256 digest.",pass:true,
+   sql:`SELECT (SELECT COUNT(*) FROM fact_fan_survey
+        WHERE hashed_email <> '' AND (LENGTH(hashed_email) <> 64 OR hashed_email GLOB '*[^0-9a-f]*'))
+     + (SELECT COUNT(*) FROM fact_fan_activation
+        WHERE hashed_email <> '' AND (LENGTH(hashed_email) <> 64 OR hashed_email GLOB '*[^0-9a-f]*')) AS bad_hashes;`},
+  {id:"hash_norm",t:"Lowercase + trim before hashing",d:"The PII vault re-hashes the governed email as lower(trim(email)) and returns only a hash → hash crosswalk. Rows that match after that were hashed as typed.",cause:"hash_norm"},
+  {id:"event_map",t:"Event type / name mapping",d:"Same fan has a Survey event in activation within an hour, under an event name no survey uses.",cause:"event_map"},
+  {id:"timing",t:"Timing: partition cutoff and timezone",d:"Submitted on a UTC date activation hasn't loaded yet. The survey export cuts off at local midnight; activation at UTC midnight.",cause:"timing"},
+  {id:"null_hash",t:"Null or empty hashes",d:"Survey rows with no hashed ID can never match.",cause:"null_hash"},
+  {id:"duplicate",t:"Duplicates – survey side",d:"Second submission of the same survey by the same hash. Activation keeps one.",cause:"duplicate"},
+  {id:"act_dupes",t:"Duplicates – activation side",d:"Rows double-written by a retried load. They inflate activation counts but don't explain missing surveys.",info:true,
+   sql:`SELECT COALESCE(SUM(c - 1), 0) AS duplicate_rows
+FROM (SELECT COUNT(*) AS c FROM fact_fan_activation
+      GROUP BY hashed_email, event_type, event_name, event_ts
+      HAVING COUNT(*) > 1);`},
+  {id:"unexplained",t:"Unexplained residual",d:"Not explained by any check above – genuinely missing. Escalate with the row list.",cause:"unexplained"},
+];
+RECON_CHECKS.forEach(c=>{if(c.cause)c.sql=`${RECON_BASE}\nSELECT COUNT(*) FROM classified WHERE cause = '${c.cause}';`});
+const RECON_SUMMARY_SQL=`${RECON_BASE}
+SELECT (SELECT COUNT(*) FROM fact_fan_survey) AS survey_rows,
+       (SELECT COUNT(*) FROM unmatched) AS unmatched,
+       (SELECT date(MAX(event_ts)) FROM fact_fan_activation) AS loaded_through;`;
+const RECON_CAUSE_SQL=`${RECON_BASE}
+SELECT cause, COUNT(*) AS rows,
+       ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM unmatched), 1) AS share_of_gap_pct
+FROM classified
+GROUP BY cause
+ORDER BY rows DESC;`;
+const RECON_BY_SURVEY_SQL=`${RECON_BASE}
+SELECT sv.survey_id, sv.event_name,
+       COUNT(*) AS responses,
+       COALESCE(c.unmatched, 0) AS unmatched,
+       ROUND(100.0 * COALESCE(c.unmatched, 0) / COUNT(*), 1) AS missing_pct,
+       c.top_cause
+FROM fact_fan_survey sv
+LEFT JOIN (SELECT survey_id, COUNT(*) AS unmatched,
+                  (SELECT cause FROM classified c2 WHERE c2.survey_id = c1.survey_id
+                   GROUP BY cause ORDER BY COUNT(*) DESC LIMIT 1) AS top_cause
+           FROM classified c1 GROUP BY survey_id) c ON c.survey_id = sv.survey_id
+GROUP BY sv.survey_id, sv.event_name
+ORDER BY missing_pct DESC;`;
+// ongoing check: what stays missing once the 48-hour late-arrival window has passed
+const RECON_ONGOING_SQL=`${RECON_BASE}
+SELECT COUNT(*) AS settled_rows,
+       SUM(CASE WHEN u.response_id IS NOT NULL THEN 1 ELSE 0 END) AS still_missing
+FROM fact_fan_survey sv
+LEFT JOIN unmatched u ON u.response_id = sv.response_id
+WHERE datetime(sv.submitted_ts) <= datetime((SELECT MAX(event_ts) FROM fact_fan_activation), '-48 hours');`;
+const RECON_ONGOING={threshold:1,text:"a daily reconciliation in the quality suite that fails when more than 1% of survey responses older than 48 hours are missing from activation, and posts the cause breakdown to the data-provider team"};
+SAVED.push(
+  ["Survey ↔ activation anti-join (survey responses missing from activation)",`-- Survey responses with no matching activation row. Hashes only – fan PII stays governed in the PII vault.
+${RECON_BASE.split("\n), classified AS (")[0]}
+)
+SELECT u.response_id, u.survey_id, u.event_name, u.market,
+       SUBSTR(u.hashed_email, 1, 12) || '…' AS hashed_email_prefix,
+       u.submitted_ts, datetime(u.submitted_ts) AS submitted_utc
+FROM unmatched u
+ORDER BY datetime(u.submitted_ts) DESC;`],
+  ["Survey ↔ activation gap by cause",`-- Every unmatched survey response classified by the first validation check that explains it
+${RECON_CAUSE_SQL}`]);
+CATALOG.push(
+  ["fact_fan_activation","Gold","Fan Data / Activation","Fan Data Steward","Confidential","Daily · D-1 UTC partition",true],
+  ["fact_fan_survey","Silver","Fan Research","Survey Data Steward","Confidential","Hourly (vendor API)",false],
+  ["gov_hash_crosswalk","Silver","Governance","PII Vault Steward","Restricted","On request",false]);
+const ERD_RECON={
+  tables:{
+    fact_fan_survey:{x:30,y:20,desc:"Grain: one row per survey response. Source: survey platform API (hourly). Hashed email only; submitted_ts is local time with its UTC offset.",owner:"Fan Research",cols:[["response_id","int","PK"],["hashed_email","text","HASH"],["survey_id","text"],["event_name","text"],["submitted_ts","text"],["market","text","FK"]]},
+    gov_hash_crosswalk:{x:445,y:210,desc:"Produced inside the PII vault: for survey hashes that differ, the hash of lower(trim(email)). Hash → hash only – no email ever leaves the vault.",owner:"Governance",cols:[["source_hash","text","PK"],["normalized_hash","text","HASH"],["method","text"]]},
+    fact_fan_activation:{x:860,y:20,desc:"The first golden truth: one row per fan activation – surveys, game events and ticket events. Loaded nightly by UTC partition (D-1).",owner:"Fan Data / Activation",cols:[["activation_id","int","PK"],["hashed_email","text","HASH"],["event_type","text"],["event_name","text"],["event_ts","text"],["source","text"]]},
+    dim_market:{x:30,y:250,desc:"International markets – survey rows carry the ISO-2 market code.",owner:"League International",cols:[["market_id","int","PK"],["country","text"],["iso2","text"],["timezone","text"],["league_presence","text"]]},
+  },
+  rels:[["fact_fan_survey","hashed_email","fact_fan_activation","hashed_email"],["gov_hash_crosswalk","source_hash","fact_fan_survey","hashed_email"],
+    ["gov_hash_crosswalk","normalized_hash","fact_fan_activation","hashed_email"],["fact_fan_survey","market","dim_market","iso2"]],
+  height:420
+};
+NOTES.recon=["The question from the call: activation is the first golden truth, but some survey responses never show up in it. Start by quantifying the gap – survey rows, matched, unmatched, % missing – with a 1:1 anti-join on hashed email + event name.",
+  "Then work the checklist: same hash algorithm and encoding (passes), lowercase + trim before hashing, event type/name mapping, timing (partition cutoff and timezone), null or empty hashes, duplicates on either side. Each check is live SQL with its count and share of the gap.",
+  "PII stays governed: we only ever see hashes. For normalization, the PII vault re-hashes lower(trim(email)) and hands back a hash → hash crosswalk – the email never leaves the vault.",
+  "The stakeholder story is one sentence generated from the numbers: X% missing, Y% of that from the top cause, here is the fix, and here is the ongoing check that catches it next time. Timing rows aren't data loss – they land in the next load.",
+  "Ownership: the fixes split between the survey vendor, the adjacent data-provider team that owns activation, and us. The ongoing check runs after a 48-hour late-arrival window, so it only alerts on real loss."];
+TOUR.splice(TOUR.length-1,0,{tab:"recon",sel:"#rcSummary",text:"Survey ↔ activation reconciliation: quantify the gap, run each validation check live on hashed IDs only, break the gap down by cause, and tell stakeholders in one sentence."});
+
+/* ---------- International Fan Journey extras: traditional media, out-of-home viewing, home clubs ---------- */
+// See-stage channel mix: digital + broadcast channels from fact_market_awareness, traditional media from its own table
+const intlMixSql=f=>`SELECT x.channel,
+       CASE WHEN x.channel IN ('Broadcast', 'Streaming') THEN 'Broadcast & streaming' ELSE 'Digital' END AS media_type,
+       SUM(x.reach) AS reach, SUM(x.impressions) AS impressions, ROUND(SUM(x.ad_spend), 0) AS ad_spend
+FROM fact_market_awareness x
+WHERE ${intlWhere(f)}
+GROUP BY x.channel
+UNION ALL
+SELECT x.channel, 'Traditional', NULL, SUM(x.est_impressions), ROUND(SUM(x.ad_spend), 0)
+FROM fact_market_traditional_media x
+WHERE ${intlWhere(f)}
+GROUP BY x.channel
+ORDER BY ad_spend DESC, impressions DESC;`;
+const INTL_HOME_SQL=`SELECT h.market_id, m.country, h.hub_city, h.team_id, t.team, h.adopted_since, h.fan_share_pct
+FROM dim_market_home_club h
+JOIN dim_market m ON m.market_id = h.market_id
+JOIN dim_team t ON t.team_id = h.team_id
+ORDER BY h.market_id;`;
+Object.assign(ERD_INTL.tables,{
+  fact_market_ooh_viewing:{x:30,y:670,desc:"Know. Grain: one row per market × week × club. Out-of-home viewing at bars, pubs, watch parties and partner venues. Source: partner-venue check-ins and venue panels.",owner:"League International",cols:[["market_id","int","FK"],["week_start","text"],["team_id","int","FK"],["partner_venues","int"],["ooh_viewers","int"],["watch_party_checkins","int"]]},
+  fact_market_traditional_media:{x:445,y:600,desc:"See. Grain: one row per market × week × club × channel (Billboards, Transit & print). Impressions are modeled audience estimates. Source: media agency buys.",owner:"League International",cols:[["market_id","int","FK"],["week_start","text"],["team_id","int","FK"],["channel","text"],["placements","int"],["est_impressions","int"],["ad_spend","real"]]},
+  dim_market_home_club:{x:860,y:510,desc:"The club fans in each market have adopted as their team (most registered fans there), its hub city and the share of surveyed fans naming it their team.",owner:"League International",cols:[["market_id","int","PK"],["team_id","int","FK"],["hub_city","text"],["adopted_since","int"],["fan_share_pct","real"]]},
+});
+ERD_INTL.rels.push(["fact_market_ooh_viewing","market_id","dim_market","market_id"],["fact_market_ooh_viewing","team_id","dim_team","team_id"],
+  ["fact_market_traditional_media","market_id","dim_market","market_id"],["fact_market_traditional_media","team_id","dim_team","team_id"],
+  ["dim_market_home_club","market_id","dim_market","market_id"],["dim_market_home_club","team_id","dim_team","team_id"]);
+ERD_INTL.height=850;
+CATALOG.push(
+  ["fact_market_ooh_viewing","Gold","League International","International Media Analytics","Internal","Weekly (venue panels)",false],
+  ["fact_market_traditional_media","Gold","League International","International Media Analytics","Confidential","Weekly (agency buys)",false],
+  ["dim_market_home_club","Gold","League International","International Data Steward","Public","Quarterly",false]);
+NOTES.intl.push("From the call: fans in a market adopt one club as their team – the ★ home club on the heatmap (London, Melbourne, Mexico City …). Know includes watching out of home at a bar or venue, and See includes traditional media like billboards alongside digital spend – both shown without changing the funnel's reach.");
+
+/* ---------- how I'd work with the team ---------- */
+const PLAN_TEAM={
+  owner:["Program owner","VPs and directors, international expansion program","Own the program and its roadmap · set priorities and success metrics"],
+  me:["Data & BI Lead (EXL)","The bridge between the league and the technical team","Turn the roadmap into requirements and cascade them · own delivery, risks and readouts"],
+  lead:["Tech lead / architect","Seasoned architect – my closest day-to-day partner","Design and technical calls · splits work across the pods · reviews code and data models"],
+  pods:[["US","BI & analytics engineers","Close to the league's hours and stakeholders"],["Canada · nearshore","Data engineers","Same time zones as the league office"],["India","Data & QA engineers","Overnight builds, tests and reconciliation runs"]],
+  dep:["Adjacent data-provider team","A dependency, not in our reporting line","Owns the fan activation and survey feeds we build on. Data contracts, a shared SLA and the survey ↔ activation reconciliation keep it visible.","recon"],
+  standup:"Daily stand-up · US · Canada · India · 9:30 AM ET = 8:00 PM IST",
+  rhythm:[["Daily","15-minute stand-up across US, Canada and India. Blockers go to the tech lead the same day; anything that needs the league comes to me."],
+    ["Weekly","Requirements and priority sync with the program owner · dependency check-in with the data-provider team."],
+    ["Bi-weekly → quarterly","The existing operating rhythm: grooming and release planning, monthly roadmap review, quarterly exec readout – around the game-day change freeze.","overview"]],
+  scale:"The program started lean and shipped an MVP; the league sees the value and is expanding it. My job is to scale it without losing that speed: certify the MVP's metrics first, add markets and clubs on a repeatable template, and grow the guardrails – data contracts, reconciliation checks, runbooks – as the team grows."
+};
+NOTES.plan=["How the team works: the league owns the program and we support its roadmap. I sit between the league's program owner – VPs and directors – and the technical team, and cascade requirements down.",
+  "My closest partner is the seasoned tech lead / architect in nearshore Canada; engineers sit in the US, Canada and India, with a daily stand-up that fits all three time zones.",
+  "We depend on an adjacent team for the data – that's why data contracts and the survey ↔ activation reconciliation matter.",
+  "The program started lean, shipped an MVP and is now expanding because the league sees the value – the job is to scale it without losing the speed."];
