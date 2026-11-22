@@ -1,5 +1,8 @@
 {
   "cleanUrls": true,
+  "redirects": [
+    { "source": "/international/", "destination": "/international", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/international", "destination": "/" }
   ]

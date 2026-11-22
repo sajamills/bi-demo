@@ -29,7 +29,10 @@ const SLUG={overview:"overview",brief:"brief",kpi:"kpi",ask:"ask",odds:"odds",er
 const TAB_OF=Object.fromEntries(Object.entries(SLUG).map(([t,s])=>[s,t]));
 const FRIENDLY_PATH=/\/international\/?$/;
 function tabFromUrl(){
-  const h=decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  const raw=location.hash.slice(1);
+  let h;
+  try{h=decodeURIComponent(raw)}catch{h=raw}
+  h=h.toLowerCase();
   if(TAB_OF[h])return TAB_OF[h];
   if(SLUG[h])return h;
   if(!h&&FRIENDLY_PATH.test(location.pathname))return "intl";
