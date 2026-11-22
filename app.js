@@ -24,16 +24,42 @@ $("#modal").onclick=e=>{if(e.target.id==="modal")$("#modal").hidden=true};
 
 /* ---------- navigation & notes ---------- */
 let current="overview";const rendered={};
-function show(tab){
+/* URL slugs: every tab has a shareable #hash (and /international is a friendly path rewritten to the app) */
+const SLUG={overview:"overview",brief:"brief",kpi:"kpi",ask:"ask",odds:"odds",erd:"erd",wh:"warehouse",sql:"sql",churn:"churn",fan:"fan-360",intl:"international",roadmap:"roadmap",gov:"governance",adopt:"adoption",plan:"90-days"};
+const TAB_OF=Object.fromEntries(Object.entries(SLUG).map(([t,s])=>[s,t]));
+const FRIENDLY_PATH=/\/international\/?$/;
+function tabFromUrl(){
+  const h=decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  if(TAB_OF[h])return TAB_OF[h];
+  if(SLUG[h])return h;
+  if(!h&&FRIENDLY_PATH.test(location.pathname))return "intl";
+  return "overview";
+}
+const tabName=t=>{const b=$(`#nav [data-tab="${t}"]`);return b?b.textContent.replace("★","").replace("✦","").trim():""};
+function show(tab,hist="push"){
+  if(!RENDER[tab])tab="overview";
   current=tab;
-  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
+  document.querySelectorAll("#nav button").forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle("on",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
   document.querySelectorAll(".tab").forEach(s=>s.classList.toggle("on",s.id==="tab-"+tab));
+  $("#mbarTab").textContent=tabName(tab);
+  if(hist!=="none"){
+    const url=location.pathname.replace(FRIENDLY_PATH,"/")+location.search+"#"+SLUG[tab];
+    if(location.hash!=="#"+SLUG[tab]||FRIENDLY_PATH.test(location.pathname))history[hist==="replace"?"replaceState":"pushState"](null,"",url);
+  }
   if(db&&!rendered[tab]){rendered[tab]=true;RENDER[tab]()}
   if(tab==="sql"&&cm)setTimeout(()=>cm.refresh(),0);
   window.scrollTo(0,0);
 }
-$("#nav").onclick=e=>{const b=e.target.closest("button");if(b)show(b.dataset.tab)};
-document.addEventListener("keydown",e=>{if(e.key==="Escape")$("#modal").hidden=true});
+/* mobile menu (≤900px): sticky top bar + dropdown drawer */
+function setMenu(open){$("#side").classList.toggle("open",open);const b=$("#menuBtn");b.setAttribute("aria-expanded",String(open));b.setAttribute("aria-label",open?"Close sections menu":"Open sections menu")}
+const menuOpen=()=>$("#side").classList.contains("open");
+$("#menuBtn").onclick=()=>setMenu(!menuOpen());
+document.addEventListener("click",e=>{if(menuOpen()&&!$("#side").contains(e.target))setMenu(false)});
+$("#nav").onclick=e=>{const b=e.target.closest("button");if(b){setMenu(false);show(b.dataset.tab)}};
+$("#tourBtn").addEventListener("click",()=>setMenu(false));
+window.addEventListener("popstate",()=>{setMenu(false);show(tabFromUrl(),"none")});
+window.addEventListener("hashchange",()=>{const t=tabFromUrl();if(t!==current||location.hash!=="#"+SLUG[t])show(t,"replace")});
+document.addEventListener("keydown",e=>{if(e.key!=="Escape")return;if(menuOpen()){e.stopImmediatePropagation();setMenu(false);$("#menuBtn").focus();return}$("#modal").hidden=true});
 
 /* ---------- flow diagrams (architecture, lineage) ---------- */
 function flow(spec,compact,colors){
@@ -374,7 +400,7 @@ let tourI=-1;
 function tourGo(i){
   document.querySelectorAll(".tour-hl").forEach(e=>e.classList.remove("tour-hl"));
   if(i<0||i>=TOUR.length){tourI=-1;$("#tourBox").hidden=true;return}
-  tourI=i;const st=TOUR[i];show(st.tab);
+  tourI=i;const st=TOUR[i];show(st.tab,"replace");
   setTimeout(()=>{const el=$(st.sel);if(el){const target=el.tagName==="SELECT"?el.closest("label"):el;target.classList.add("tour-hl");target.scrollIntoView({behavior:"smooth",block:"center"})}},120);
   $("#tourText").textContent=st.text;$("#tourStep").textContent=`Step ${i+1} of ${TOUR.length}`;$("#tourBox").hidden=false;
   $("#tourBack").disabled=i===0;$("#tourNext").textContent=i===TOUR.length-1?"Finish":"Next →";
@@ -867,9 +893,23 @@ function intlPick(e){
 }
 ["#iMarkets","#iHeat"].forEach(s=>{$(s).addEventListener("click",intlPick);$(s).addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("[data-imkt],[data-iteam]")){e.preventDefault();intlPick(e)}})});
 
+/* share link: copies <origin>/international (preview deploys copy their own origin) */
+let copyT=0;
+function copyMsg(t){$("#iCopyMsg").textContent=t;clearTimeout(copyT);copyT=setTimeout(()=>$("#iCopyMsg").textContent="",t.length>12?8000:2000)}
+function copyFallback(text){
+  const ta=document.createElement("textarea");ta.value=text;ta.setAttribute("readonly","");ta.style.cssText="position:fixed;top:0;left:0;opacity:0";
+  document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand("copy")}catch(e){}ta.remove();return ok;
+}
+$("#iCopyLink").onclick=()=>{
+  const url=location.origin+"/international";
+  const done=()=>copyMsg("Copied"),fail=()=>copyMsg(copyFallback(url)?"Copied":"Copy this link: "+url);
+  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(url).then(done,fail);else fail();
+};
+
 const RENDER={intl:renderIntl,fan:renderFan,plan:renderPlan,overview:renderOverview,kpi:renderKpi,odds:renderOdds,wh:renderWh,brief:renderBrief,ask:renderAsk,churn:renderChurn,erd:()=>renderErd("star"),sql:renderSql,roadmap:renderRoadmap,gov:renderGov,adopt:renderAdopt};
 
 /* ---------- boot ---------- */
+{const t=tabFromUrl();show(t,FRIENDLY_PATH.test(location.pathname)||(location.hash&&location.hash!=="#"+SLUG[t])?"replace":"none")}
 initSqlJs({locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`}).then(SQL=>{
   const t0=performance.now();db=buildWarehouse(SQL);
   const n=one("SELECT COUNT(*) FROM dim_game");
